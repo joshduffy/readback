@@ -35,6 +35,7 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		SilenceErrors: true,
 		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
 			w = output.New(stdout, stderr, forceJSON)
+			doctor.Version = Version
 		},
 	}
 	root.SetIn(stdin)
