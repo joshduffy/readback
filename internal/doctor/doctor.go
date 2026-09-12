@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/joshduffy/readback/internal/output"
@@ -56,20 +55,29 @@ type Probes struct {
 	Home     func() (string, error)
 	Cwd      func() (string, error)
 	Env      func(key string) string
+	// VersionTimeout bounds each --version probe. Zero means the default.
+	VersionTimeout time.Duration
 }
 
-// boundedCmd returns a command that is hard-bounded by ctx: it runs in its
-// own process group and cancellation kills the whole group, so a probe that
-// spawns children still returns within the deadline. WaitDelay caps the time
-// spent waiting on pipes inherited by grandchildren.
+const defaultVersionTimeout = 3 * time.Second
+
+func (p Probes) versionTimeout() time.Duration {
+	if p.VersionTimeout > 0 {
+		return p.VersionTimeout
+	}
+	return defaultVersionTimeout
+}
+
+// boundedCmd returns a command that is hard-bounded by ctx. On unix it runs
+// in its own process group and cancellation kills the whole group, so a
+// probe that spawns children still returns within the deadline; on Windows
+// cancellation kills only the direct process. WaitDelay caps the time spent
+// waiting on pipes inherited by grandchildren.
 func boundedCmd(ctx context.Context, name string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setProcAttrs(cmd)
 	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return nil
-		}
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		return killProc(cmd)
 	}
 	cmd.WaitDelay = 500 * time.Millisecond
 	return cmd
@@ -82,7 +90,7 @@ func defaultProbes() Probes {
 			cmd := boundedCmd(ctx, path, "--version")
 			var out bytes.Buffer
 			cmd.Stdout = &out
-			cmd.Stderr = &out
+			cmd.Stderr = io.Discard
 			err := cmd.Run()
 			return firstLine(out.String()), err
 		},
@@ -112,6 +120,7 @@ type ghInfo struct {
 	Version    string `json:"version"`
 	AuthOK     bool   `json:"auth_ok"`
 	AuthDetail string `json:"auth_detail"`
+	Error      string `json:"error"`
 }
 
 type cfInfo struct {
@@ -127,8 +136,9 @@ type assertionsInfo struct {
 }
 
 type hooksInfo struct {
-	ClaudeSettingsMentionsReadback bool `json:"claude_settings_mentions_readback"`
-	CodexHooksMentionsReadback     bool `json:"codex_hooks_mentions_readback"`
+	ClaudeSettingsMentionsReadback bool   `json:"claude_settings_mentions_readback"`
+	CodexHooksMentionsReadback     bool   `json:"codex_hooks_mentions_readback"`
+	Error                          string `json:"error"`
 }
 
 type report struct {
@@ -192,7 +202,7 @@ func probeAgent(p Probes, bin string) agentInfo {
 		return agentInfo{Found: false}
 	}
 	info := agentInfo{Found: true, Path: path}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), p.versionTimeout())
 	defer cancel()
 	if version, err := p.RunVersion(ctx, path); err == nil {
 		info.Version = version
@@ -203,10 +213,10 @@ func probeAgent(p Probes, bin string) agentInfo {
 func probeGh(p Probes) ghInfo {
 	path, err := p.LookPath("gh")
 	if err != nil {
-		return ghInfo{Found: false, AuthDetail: "gh not found on PATH"}
+		return ghInfo{Found: false, Error: "gh not found on PATH"}
 	}
 	info := ghInfo{Found: true}
-	versionCtx, versionCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	versionCtx, versionCancel := context.WithTimeout(context.Background(), p.versionTimeout())
 	if version, err := p.RunVersion(versionCtx, path); err == nil {
 		info.Version = version
 	}
@@ -287,7 +297,7 @@ func probeAssertions(p Probes) assertionsInfo {
 func probeHooks(p Probes) hooksInfo {
 	home, err := p.Home()
 	if err != nil {
-		return hooksInfo{}
+		return hooksInfo{Error: err.Error()}
 	}
 	return hooksInfo{
 		ClaudeSettingsMentionsReadback: fileContains(filepath.Join(home, ".claude", "settings.json"), "readback"),
@@ -325,6 +335,7 @@ func renderTable(o io.Writer, rep report) {
 		{"version", dash(rep.Gh.Version)},
 		{"auth_ok", boolWord(rep.Gh.AuthOK)},
 		{"auth_detail", dash(rep.Gh.AuthDetail)},
+		{"error", dash(rep.Gh.Error)},
 	})
 	fmt.Fprintln(o)
 	output.Table(o, []string{"CLOUDFLARE", "VALUE"}, [][]string{
@@ -342,6 +353,7 @@ func renderTable(o io.Writer, rep report) {
 	output.Table(o, []string{"HOOKS", "VALUE"}, [][]string{
 		{"claude_settings_mentions_readback", boolWord(rep.Hooks.ClaudeSettingsMentionsReadback)},
 		{"codex_hooks_mentions_readback", boolWord(rep.Hooks.CodexHooksMentionsReadback)},
+		{"error", dash(rep.Hooks.Error)},
 	})
 }
 

@@ -6,9 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math/rand"
 	"net/http"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/joshduffy/readback/internal/output"
 )
@@ -131,9 +136,10 @@ func TestDoctorAuthOkExit0(t *testing.T) {
 }
 
 func TestDoctorRedactsGhStderr(t *testing.T) {
+	token := "ghp_" + randAlnum(36)
 	probes := baseProbes(t)
 	probes.GhAuth = func(ctx context.Context) (string, string, error) {
-		return "", "error validating token ghp_ABCDEF123456 for github.com; also saw github_pat_XYZ789abc in config", errors.New("exit status 1")
+		return "", "error validating token " + token + " for github.com", errors.New("exit status 1")
 	}
 	env, raw, code := runDoctor(t, probes)
 	if code != output.ExitUnproven {
@@ -142,18 +148,29 @@ func TestDoctorRedactsGhStderr(t *testing.T) {
 	if env.Data.Gh.AuthOK {
 		t.Fatal("gh.auth_ok = true, want false when gh auth status fails")
 	}
-	for _, leak := range []string{"ABCDEF123456", "XYZ789abc"} {
-		if strings.Contains(raw, leak) {
-			t.Fatalf("output contains unredacted gh token material %q:\n%s", leak, raw)
-		}
+	if strings.Contains(raw, token) {
+		t.Fatalf("output contains unredacted gh token %q:\n%s", token, raw)
 	}
 	if !strings.Contains(env.Data.Gh.AuthDetail, "[redacted]") {
 		t.Fatalf("auth_detail = %q, want [redacted] markers", env.Data.Gh.AuthDetail)
 	}
 }
 
+// randAlnum returns n pseudo-random mixed alphanumerics from a fixed seed:
+// realistic-looking fixture material that is never a real token.
+func randAlnum(n int) string {
+	const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	r := rand.New(rand.NewSource(10))
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = alphabet[r.Intn(len(alphabet))]
+	}
+	return string(b)
+}
+
 func TestDoctorAgentsProbeTimeoutIsNotError(t *testing.T) {
 	probes := baseProbes(t)
+	probes.VersionTimeout = 50 * time.Millisecond
 	probes.RunVersion = func(ctx context.Context, path string) (string, error) {
 		<-ctx.Done()
 		return "", ctx.Err()
@@ -205,7 +222,8 @@ func TestDoctorAuthDetailIsStderrOnly(t *testing.T) {
 
 func TestDoctorSlowVersionDoesNotFailAuth(t *testing.T) {
 	probes := baseProbes(t)
-	// Only gh resolves, so the slow version probe runs once (3s deadline).
+	probes.VersionTimeout = 50 * time.Millisecond
+	// Only gh resolves, so the slow version probe runs once.
 	probes.LookPath = func(name string) (string, error) {
 		if name == "gh" {
 			return "/fake/bin/gh", nil
@@ -225,6 +243,71 @@ func TestDoctorSlowVersionDoesNotFailAuth(t *testing.T) {
 	}
 	if env.Data.Gh.Version != "" {
 		t.Fatalf("gh.version = %q, want empty on version timeout", env.Data.Gh.Version)
+	}
+}
+
+func TestDoctorGhNotFoundHasErrorNotDetail(t *testing.T) {
+	probes := baseProbes(t)
+	probes.LookPath = func(name string) (string, error) {
+		if name == "gh" {
+			return "", errors.New("executable file not found in $PATH")
+		}
+		return "/fake/bin/" + name, nil
+	}
+	env, _, code := runDoctor(t, probes)
+	if code != output.ExitUnproven {
+		t.Fatalf("exit = %d, want %d", code, output.ExitUnproven)
+	}
+	if env.Data.Gh.Found {
+		t.Fatal("gh.found = true, want false when gh is not on PATH")
+	}
+	if env.Data.Gh.AuthDetail != "" {
+		t.Fatalf("gh.auth_detail = %q, want empty when gh is not found (auth_detail is stderr only)", env.Data.Gh.AuthDetail)
+	}
+	if !strings.Contains(env.Data.Gh.Error, "gh not found on PATH") {
+		t.Fatalf("gh.error = %q, want it to contain %q", env.Data.Gh.Error, "gh not found on PATH")
+	}
+}
+
+func TestDoctorVersionIgnoresStderr(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script fake binary is unix-only")
+	}
+	path := filepath.Join(t.TempDir(), "fakecli")
+	script := "#!/bin/sh\necho 'fakecli version 9.9.9'\necho 'WARNING: stderr garbage' >&2\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake cli: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	version, err := defaultProbes().RunVersion(ctx, path)
+	if err != nil {
+		t.Fatalf("RunVersion: %v", err)
+	}
+	if version != "fakecli version 9.9.9" {
+		t.Fatalf("version = %q, want %q taken from stdout's first line only", version, "fakecli version 9.9.9")
+	}
+	if strings.Contains(version, "WARNING") {
+		t.Fatalf("version = %q contains stderr material", version)
+	}
+}
+
+func TestDoctorHomeErrorSurfaces(t *testing.T) {
+	probes := baseProbes(t)
+	probes.Home = func() (string, error) { return "", errors.New("home directory unavailable") }
+	probes.Cwd = func() (string, error) { return "", errors.New("working directory unavailable") }
+	env, _, _ := runDoctor(t, probes)
+	if !strings.Contains(env.Data.Hooks.Error, "home directory unavailable") {
+		t.Fatalf("hooks.error = %q, want the Home() error message", env.Data.Hooks.Error)
+	}
+	if env.Data.Hooks.ClaudeSettingsMentionsReadback || env.Data.Hooks.CodexHooksMentionsReadback {
+		t.Fatalf("hooks = %+v, want booleans false when Home() fails", env.Data.Hooks)
+	}
+	if !strings.Contains(env.Data.Assertions.Error, "working directory unavailable") {
+		t.Fatalf("assertions.error = %q, want the Cwd() error message", env.Data.Assertions.Error)
+	}
+	if env.Data.Assertions.Found {
+		t.Fatal("assertions.found = true, want false when Cwd() fails")
 	}
 }
 

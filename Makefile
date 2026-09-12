@@ -1,7 +1,7 @@
 BIN := readback
 LDFLAGS := -s -w -X github.com/joshduffy/readback/internal/cli.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build test vet check attack clean
+.PHONY: build test vet check cross attack clean
 
 build:
 	go build -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/readback
@@ -12,7 +12,14 @@ test:
 vet:
 	go vet ./...
 
-check: vet test build
+# Cross-compile every package with no output binary; catches GOOS-specific
+# breakage (syscall use, build tags) that the host build misses.
+cross:
+	GOOS=windows GOARCH=amd64 go build -o /dev/null ./...
+	GOOS=linux GOARCH=arm64 go build -o /dev/null ./...
+	GOOS=darwin GOARCH=amd64 go build -o /dev/null ./...
+
+check: vet test build cross
 
 # Adversarial fixtures. Every module adds its incident-derived inputs here; the
 # target fails if any fixture that must be rejected is accepted.
