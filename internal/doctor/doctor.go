@@ -20,7 +20,7 @@ func init() {
 		Keywords:  []string{"doctor", "install", "auth", "gh", "wrangler", "hooks"},
 		Schema: map[string]interface{}{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
-			"title":   "readback deploy result",
+			"title":   "readback doctor result",
 			"type":    "object",
 		},
 	})

@@ -20,7 +20,7 @@ func init() {
 		Keywords:  []string{"deploy", "sha", "cloudflare", "vercel", "railway", "netlify", "fly", "github actions"},
 		Schema: map[string]interface{}{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
-			"title":   "readback deploy result",
+			"title":   "readback verify-deploy result",
 			"type":    "object",
 		},
 	})
