@@ -137,3 +137,104 @@ func TestDefaultRegistryWiresHTTPAndLocal(t *testing.T) {
 		t.Fatalf("file_exists = %T", reg["file_exists"])
 	}
 }
+
+func TestInstallSkillsWritesPerAgent(t *testing.T) {
+	dir := t.TempDir()
+	code, out, stderr := run(t, "install-skills", "--dir", dir, "--json")
+	path := filepath.Join(dir, "SKILL.md")
+	got, err := os.ReadFile(path)
+	if code != 0 || err != nil || !bytes.Equal(got, embeddedSkill) || !strings.Contains(out, path) {
+		t.Fatalf("exit=%d read=%v stdout=%s stderr=%s", code, err, out, stderr)
+	}
+	if code, _, _ := run(t, "install-skills", "--agent", "codex", "--dir", dir); code != 64 {
+		t.Fatalf("--dir with --agent should be usage error 64, got %d", code)
+	}
+	t.Setenv("HOME", t.TempDir())
+	code, out, stderr = run(t, "install-skills")
+	if code != 0 {
+		t.Fatalf("exit=%d %s %s", code, out, stderr)
+	}
+	for _, agent := range []string{"claude", "codex", "cursor"} {
+		got, err := os.ReadFile(filepath.Join(os.Getenv("HOME"), "."+agent, "skills", "readback-cli-usage", "SKILL.md"))
+		if err != nil || !bytes.Equal(got, embeddedSkill) {
+			t.Fatalf("%s: %v", agent, err)
+		}
+	}
+}
+
+func TestInstallSkillsRefusesForeignFileWithoutForce(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "SKILL.md")
+	foreign := []byte("# Foreign skill\nkeep me\n")
+	if err := os.WriteFile(path, foreign, 0600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ := run(t, "install-skills", "--dir", dir)
+	got, err := os.ReadFile(path)
+	if code != 2 || err != nil || !bytes.Equal(got, foreign) || !strings.Contains(out, "--force") {
+		t.Fatalf("exit=%d read=%v output=%s", code, err, out)
+	}
+	code, out, _ = run(t, "install-skills", "--dir", dir, "--force")
+	got, err = os.ReadFile(path)
+	if code != 0 || err != nil || !bytes.Equal(got, embeddedSkill) {
+		t.Fatalf("exit=%d read=%v output=%s", code, err, out)
+	}
+	code, out, _ = run(t, "install-skills", "--dir", dir)
+	if code != 0 {
+		t.Fatalf("own skill overwrite: %d %s", code, out)
+	}
+}
+
+func TestInstallSkillsProtectsLocalEditsAndIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "SKILL.md")
+	if code, out, _ := run(t, "install-skills", "--dir", dir); code != 0 {
+		t.Fatalf("first install: %d %s", code, out)
+	}
+	before, _ := os.Stat(path)
+	// Identical content: no rewrite, so the mtime is untouched.
+	if code, out, _ := run(t, "install-skills", "--dir", dir); code != 0 {
+		t.Fatalf("second install: %d %s", code, out)
+	}
+	after, _ := os.Stat(path)
+	if !before.ModTime().Equal(after.ModTime()) {
+		t.Fatalf("identical skill was rewritten")
+	}
+	// CRLF copy of our own skill counts as identical.
+	crlf := bytes.ReplaceAll(embeddedSkill, []byte("\n"), []byte("\r\n"))
+	if err := os.WriteFile(path, crlf, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, _ := run(t, "install-skills", "--dir", dir); code != 0 {
+		t.Fatalf("crlf copy refused: %d %s", code, out)
+	}
+	// A local edit below our first line is refused without --force.
+	edited := append(append([]byte{}, embeddedSkill...), []byte("\nlocal note\n")...)
+	if err := os.WriteFile(path, edited, 0644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ := run(t, "install-skills", "--dir", dir)
+	got, _ := os.ReadFile(path)
+	if code != 2 || !bytes.Equal(got, edited) || !strings.Contains(out, "edited locally") {
+		t.Fatalf("local edit not protected: exit=%d out=%s", code, out)
+	}
+	// An empty file has nothing to protect.
+	if err := os.WriteFile(path, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ = run(t, "install-skills", "--dir", dir)
+	got, _ = os.ReadFile(path)
+	if code != 0 || !bytes.Equal(got, embeddedSkill) {
+		t.Fatalf("empty file refused: exit=%d out=%s", code, out)
+	}
+}
+
+func TestSkillEmbeddedMatchesRepoFile(t *testing.T) {
+	got, err := os.ReadFile(filepath.Join("..", "..", "skills", "readback-cli-usage", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, embeddedSkill) {
+		t.Fatal("embedded skill differs from shipped skill")
+	}
+}

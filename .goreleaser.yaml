@@ -9,7 +9,8 @@ builds:
     ldflags:
       - -s -w -X github.com/joshduffy/readback/internal/cli.Version={{.Version}}
 archives:
-  - formats: [tar.gz]
+  - name_template: readback_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    formats: [tar.gz]
     format_overrides:
       - goos: windows
         formats: [zip]
@@ -25,4 +26,4 @@ brews:
     test: |
       system "#{bin}/readback", "capabilities", "--json"
 release:
-  draft: true
+  draft: false

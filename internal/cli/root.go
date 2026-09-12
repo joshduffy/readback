@@ -72,6 +72,7 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		capabilitiesCmd(getW),
 		schemaCmd(getW),
 		searchCmd(getW),
+		installSkillsCmd(getW),
 	)
 
 	root.SetArgs(args)

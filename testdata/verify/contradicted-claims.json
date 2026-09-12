@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "claims": [
+    {"type":"pr_merged","repo":"joshduffy/readback","pr":1,"into":"develop"},
+    {"type":"pr_merged","repo":"joshduffy/readback","pr":999},
+    {"type":"commit_on_branch","repo":"joshduffy/readback","sha":"ffffffffffffffffffffffffffffffffffffffff","branch":"main"},
+    {"type":"url_serving","url":"https://example.com/","marker":"THIS-STRING-IS-NOT-ON-THE-PAGE"},
+    {"type":"file_exists","path":"does-not-exist.txt"}
+  ]
+}
