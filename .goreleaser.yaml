@@ -20,6 +20,7 @@ brews:
   - repository:
       owner: joshduffy
       name: homebrew-tap
+    directory: Formula
     homepage: https://github.com/joshduffy/readback
     description: Agent ops for your own machine. Agents claim; readback verifies.
     license: MIT
