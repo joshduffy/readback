@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "claims": [
+    { "type": "pr_merged", "repo": "joshduffy/example", "pr": 412, "into": "main" },
+    { "type": "checks_passed", "repo": "joshduffy/example", "sha": "0123456789abcdef0123456789abcdef01234567" },
+    { "type": "deployment_serving", "provider": "cloudflare-workers", "account": "example", "worker": "example-web",
+      "sha": "0123456789abcdef0123456789abcdef01234567", "url": "https://example.invalid/", "marker": "build-0123456" },
+    { "type": "url_serving", "url": "https://teams.example.invalid/l/app/abc123", "expect_status": 200 }
+  ]
+}

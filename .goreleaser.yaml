@@ -1,0 +1,28 @@
+version: 2
+project_name: readback
+builds:
+  - main: ./cmd/readback
+    binary: readback
+    env: [CGO_ENABLED=0]
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X github.com/joshduffy/readback/internal/cli.Version={{.Version}}
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+checksum:
+  name_template: checksums.txt
+brews:
+  - repository:
+      owner: joshduffy
+      name: homebrew-tap
+    homepage: https://github.com/joshduffy/readback
+    description: Agent ops for your own machine. Agents claim; readback verifies.
+    license: MIT
+    test: |
+      system "#{bin}/readback", "capabilities", "--json"
+release:
+  draft: true

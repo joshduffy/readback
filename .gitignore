@@ -1,0 +1,7 @@
+/dist/
+/readback
+*.test
+coverage.out
+.DS_Store
+.env
+.env.*

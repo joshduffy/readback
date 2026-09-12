@@ -1,0 +1,8 @@
+# Operator-controlled. Claims listed here must be present AND verified for exit 0,
+# so an agent cannot pass by leaving the hard claim out of its report.
+version: 1
+require:
+  - type: pr_merged
+    into: main
+  - type: deployment_serving
+    provider: cloudflare-workers

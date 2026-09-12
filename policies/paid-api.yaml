@@ -1,0 +1,17 @@
+# readback policy pack: paid API guard
+# Static pre-execution scan of the script named in a Bash command for paid SDK imports.
+version: 1
+name: paid-api
+rules:
+  - id: paid-sdk-import
+    on: [Bash]
+    scan_script_imports:
+      - "@anthropic-ai/sdk"
+      - anthropic
+      - openai
+      - voyageai
+      - cohere
+      - "@google/genai"
+    unless_flag: --paid-ok
+    action: deny
+    reason: Script imports a paid LLM or embedding SDK. State the cost and rerun with --paid-ok.

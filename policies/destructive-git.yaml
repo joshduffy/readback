@@ -1,0 +1,20 @@
+# readback policy pack: destructive git
+# Compiled by `readback policy compile` into each agent CLI's hook format.
+version: 1
+name: destructive-git
+rules:
+  - id: no-force-push-default
+    on: [Bash]
+    match: 'git\s+push\s.*(--force|-f)\b.*\b(main|master)\b'
+    action: deny
+    reason: Force-pushing a default branch destroys shared history.
+  - id: no-reset-hard
+    on: [Bash]
+    match: 'git\s+reset\s+--hard'
+    action: ask
+    reason: Discards uncommitted work; state what is lost first.
+  - id: no-rm-rf-root
+    on: [Bash]
+    match: 'rm\s+-rf?\s+(/|~|\$HOME)(\s|$)'
+    action: deny
+    reason: Recursive delete of a root directory.
