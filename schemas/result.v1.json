@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "readback RunResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "input",
+    "summary",
+    "claims"
+  ],
+  "properties": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "claims",
+        "assertions"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "claims": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "assertions": {
+          "type": "string"
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verified",
+        "contradicted",
+        "indeterminate",
+        "required_unmet"
+      ],
+      "properties": {
+        "verified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contradicted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "indeterminate": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "required_unmet": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "minProperties": 1
+          }
+        }
+      }
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "status",
+          "checked_at",
+          "evidence",
+          "reason"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "verified",
+              "contradicted",
+              "indeterminate"
+            ]
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source",
+                "call",
+                "observed"
+              ],
+              "properties": {
+                "source": {
+                  "type": "string"
+                },
+                "call": {
+                  "type": "string"
+                },
+                "observed": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "reason": {
+            "enum": [
+              null,
+              "unsupported_claim_type",
+              "not_merged",
+              "merged_into_other_branch",
+              "checks_failing",
+              "checks_pending",
+              "check_missing",
+              "sha_not_on_branch",
+              "file_missing",
+              "content_missing",
+              "status_mismatch",
+              "marker_missing",
+              "header_mismatch",
+              "version_sha_mismatch",
+              "version_sha_unavailable",
+              "health_sha_mismatch",
+              "deployment_not_found",
+              "auth_missing",
+              "provider_unreachable",
+              "host_not_allowed",
+              "no_claims_block",
+              "required_assertion_unmet"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

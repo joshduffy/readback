@@ -19,11 +19,6 @@ type Assertions struct {
 
 type Requirement map[string]string
 
-type ClaimResult struct {
-	Claim  Claim
-	Status string
-}
-
 func LoadAssertions(path string) (Assertions, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
