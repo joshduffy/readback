@@ -1,0 +1,10 @@
+{
+  "merged": true,
+  "merged_at": "2026-09-12T18:02:11Z",
+  "merge_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "base": {
+    "ref": "main"
+  },
+  "state": "closed",
+  "body": "PRIVATE BODY MUST NOT ESCAPE"
+}

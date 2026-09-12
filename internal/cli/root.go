@@ -15,6 +15,9 @@ import (
 	"github.com/joshduffy/readback/internal/memory"
 	"github.com/joshduffy/readback/internal/output"
 	"github.com/joshduffy/readback/internal/policy"
+	"github.com/joshduffy/readback/internal/providers/github"
+	httpprovider "github.com/joshduffy/readback/internal/providers/http"
+	"github.com/joshduffy/readback/internal/providers/local"
 	"github.com/joshduffy/readback/internal/registry"
 	"github.com/joshduffy/readback/internal/verify"
 	"github.com/spf13/cobra"
@@ -22,6 +25,19 @@ import (
 
 // Version is set by goreleaser via -ldflags.
 var Version = "dev"
+
+var registryFactory verify.RegistryFactory = defaultRegistry
+
+func defaultRegistry(cwd string) verify.Registry {
+	registry := verify.StubRegistry()
+	gh := github.New(nil)
+	for _, kind := range []string{"pr_merged", "checks_passed", "commit_on_branch"} {
+		registry[kind] = gh
+	}
+	registry["url_serving"] = httpprovider.New(httpprovider.Options{UserAgent: "readback/" + Version})
+	registry["file_exists"] = local.New(cwd)
+	return registry
+}
 
 func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var forceJSON bool
@@ -44,7 +60,7 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	root.PersistentFlags().BoolVar(&forceJSON, "json", false, "emit JSON regardless of TTY")
 
 	root.AddCommand(
-		verify.Command(getW),
+		verify.Command(getW, registryFactory),
 		deploy.Command(getW),
 		doctor.Command(getW),
 		policy.Command(getW),

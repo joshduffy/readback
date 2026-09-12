@@ -1,0 +1,9 @@
+{
+  "merged": false,
+  "merged_at": null,
+  "merge_commit_sha": null,
+  "base": {
+    "ref": "main"
+  },
+  "state": "open"
+}

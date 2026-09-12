@@ -33,7 +33,12 @@ func init() {
 	})
 }
 
-func Command(w func() *output.Writer) *cobra.Command {
+type RegistryFactory func(cwd string) Registry
+
+func Command(w func() *output.Writer, factory RegistryFactory) *cobra.Command {
+	if factory == nil {
+		factory = func(string) Registry { return StubRegistry() }
+	}
 	var assertionsPath, cwd string
 	var timeout time.Duration
 	cmd := &cobra.Command{
@@ -98,7 +103,7 @@ func Command(w func() *output.Writer) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
-			result := Run(ctx, RunInput{Doc: doc, Assertions: assertions, Registry: stubRegistry()})
+			result := Run(ctx, RunInput{Doc: doc, Assertions: assertions, Registry: factory(workingDir)})
 			result.Input.Path, result.Input.Assertions = args[0], path
 			code := result.ExitCode()
 			return exitError(w().Emit(output.Result{Command: name, OK: code == 0, Exit: code, Data: result}, func(o io.Writer) {

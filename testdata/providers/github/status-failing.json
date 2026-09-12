@@ -1,0 +1,9 @@
+{
+  "state": "failure",
+  "statuses": [
+    {
+      "context": "legacy-ci",
+      "state": "failure"
+    }
+  ]
+}

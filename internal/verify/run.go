@@ -119,7 +119,7 @@ func (stubChecker) Check(context.Context, Claim) Outcome {
 	return Outcome{Status: StatusIndeterminate, Reason: ReasonProviderUnreachable, Evidence: []Evidence{{Source: "stub"}}}
 }
 
-func stubRegistry() Registry {
+func StubRegistry() Registry {
 	registry := Registry{}
 	for _, kind := range []string{"pr_merged", "checks_passed", "commit_on_branch", "file_exists", "url_serving", "deployment_serving"} {
 		registry[kind] = stubChecker{}

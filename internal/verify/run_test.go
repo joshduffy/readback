@@ -94,7 +94,7 @@ func TestRequiredUnmetForcesExit1(t *testing.T) {
 	}
 }
 func TestStubRegistryIndeterminate(t *testing.T) {
-	registry := stubRegistry()
+	registry := StubRegistry()
 	if len(registry) != 6 {
 		t.Fatal(registry)
 	}
@@ -124,7 +124,7 @@ func TestVerifyCommandExitCodes(t *testing.T) {
 				}
 			}
 			var out bytes.Buffer
-			cmd := Command(func() *output.Writer { return output.New(&out, &out, true) })
+			cmd := Command(func() *output.Writer { return output.New(&out, &out, true) }, nil)
 			cmd.SetArgs([]string{path, "--cwd", dir})
 			err := cmd.Execute()
 			var ec interface{ ExitCode() int }
@@ -177,7 +177,7 @@ func TestVerifyTableRequiredUnmet(t *testing.T) {
 	var out bytes.Buffer
 	writer := output.New(&out, &out, false)
 	writer.JSON = false
-	cmd := Command(func() *output.Writer { return writer })
+	cmd := Command(func() *output.Writer { return writer }, nil)
 	cmd.SetArgs([]string{path, "--cwd", dir})
 	err := cmd.Execute()
 	var ec interface{ ExitCode() int }
@@ -302,7 +302,7 @@ func TestAssertionsDiscoveryErrorIsExit2(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	cmd := Command(func() *output.Writer { return output.New(&out, &out, true) })
+	cmd := Command(func() *output.Writer { return output.New(&out, &out, true) }, nil)
 	cmd.SetArgs([]string{path, "--cwd", path})
 	err := cmd.Execute()
 	var ec interface{ ExitCode() int }
@@ -315,5 +315,31 @@ func TestAssertionsDiscoveryErrorIsExit2(t *testing.T) {
 	}
 	if result.Exit != 2 || result.Error == "" || result.OK {
 		t.Fatalf("output: %s", out.String())
+	}
+}
+
+func TestCommandNilFactoryUsesStubs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "claims.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"claims":[{"type":"pr_merged","repo":"joshduffy/readback","pr":1,"into":"main"}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	cmd := Command(func() *output.Writer { return output.New(&out, &out, true) }, nil)
+	cmd.SetArgs([]string{path, "--cwd", dir})
+	var ec interface{ ExitCode() int }
+	if err := cmd.Execute(); !errors.As(err, &ec) || ec.ExitCode() != output.ExitCouldNotCheck {
+		t.Fatalf("error = %v", err)
+	}
+	var result struct{ Data RunResult }
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Data.Claims) != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	claim := result.Data.Claims[0]
+	if claim.Status != StatusIndeterminate || claim.Reason != ReasonProviderUnreachable || len(claim.Evidence) != 1 || claim.Evidence[0].Source != "stub" {
+		t.Fatalf("claim = %+v", claim)
 	}
 }

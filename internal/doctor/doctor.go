@@ -132,12 +132,12 @@ type hooksInfo struct {
 }
 
 type report struct {
-	Version    string                `json:"version"`
-	Agents     map[string]agentInfo  `json:"agents"`
-	Gh         ghInfo                `json:"gh"`
-	Cloudflare cfInfo                `json:"cloudflare"`
-	Assertions assertionsInfo        `json:"assertions"`
-	Hooks      hooksInfo             `json:"hooks"`
+	Version    string               `json:"version"`
+	Agents     map[string]agentInfo `json:"agents"`
+	Gh         ghInfo               `json:"gh"`
+	Cloudflare cfInfo               `json:"cloudflare"`
+	Assertions assertionsInfo       `json:"assertions"`
+	Hooks      hooksInfo            `json:"hooks"`
 }
 
 // Command returns the cobra command for this module.

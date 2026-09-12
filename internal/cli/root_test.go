@@ -2,11 +2,19 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
+	httpprovider "github.com/joshduffy/readback/internal/providers/http"
+	"github.com/joshduffy/readback/internal/providers/local"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/joshduffy/readback/internal/output"
+	"github.com/joshduffy/readback/internal/providers/github"
+	"github.com/joshduffy/readback/internal/verify"
 )
 
 func run(t *testing.T, args ...string) (int, string, string) {
@@ -48,5 +56,85 @@ func TestSchemaUnknownIsUsageError(t *testing.T) {
 	code, _, errb := run(t, "schema", "nope")
 	if code != output.ExitUsage || !strings.Contains(errb, "unknown module") {
 		t.Fatalf("exit %d, stderr %q", code, errb)
+	}
+}
+
+func TestDefaultRegistryWiresGithub(t *testing.T) {
+	registry := defaultRegistry(t.TempDir())
+	if len(registry) != 6 {
+		t.Fatalf("registry size = %d", len(registry))
+	}
+	for _, kind := range []string{"pr_merged", "checks_passed", "commit_on_branch"} {
+		if _, ok := registry[kind].(*github.Checker); !ok {
+			t.Fatalf("%s checker = %T", kind, registry[kind])
+		}
+	}
+	for _, kind := range []string{"deployment_serving"} {
+		got := registry[kind].Check(context.Background(), verify.Claim{Type: kind})
+		if got.Status != verify.StatusIndeterminate || len(got.Evidence) != 1 || got.Evidence[0].Source != "stub" {
+			t.Fatalf("%s = %#v", kind, got)
+		}
+	}
+	delete(registry, "pr_merged")
+	if defaultRegistry(t.TempDir())["pr_merged"] == nil {
+		t.Fatal("registries share mutable state")
+	}
+}
+
+func TestVerifyUsesFactory(t *testing.T) {
+	original := registryFactory
+	t.Cleanup(func() { registryFactory = original })
+	for _, explicitCWD := range []bool{false, true} {
+		t.Run(fmt.Sprint(explicitCWD), func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "claims.json")
+			if err := os.WriteFile(path, []byte(`{"version":1,"claims":[{"type":"pr_merged","repo":"joshduffy/readback","pr":1,"into":"main"}]}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			wantCWD, err := os.Getwd()
+			if err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"verify", path, "--json"}
+			if explicitCWD {
+				wantCWD = dir
+				args = append(args, "--cwd", dir)
+			}
+			calls := 0
+			registryFactory = func(cwd string) verify.Registry {
+				calls++
+				if cwd != wantCWD {
+					t.Errorf("cwd = %q, want %q", cwd, wantCWD)
+				}
+				return verify.Registry{"pr_merged": github.New(func(context.Context, ...string) ([]byte, int, error) {
+					return []byte(`{"merged":true,"base":{"ref":"main"}}`), 0, nil
+				})}
+			}
+			code, out, stderr := run(t, args...)
+			if code != output.ExitVerified || calls != 1 {
+				t.Fatalf("exit = %d, factory calls = %d, stdout = %s, stderr = %s", code, calls, out, stderr)
+			}
+			var result struct{ Data verify.RunResult }
+			if err := json.Unmarshal([]byte(out), &result); err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Data.Claims) != 1 {
+				t.Fatalf("result = %+v", result)
+			}
+			claim := result.Data.Claims[0]
+			if claim.Status != verify.StatusVerified || len(claim.Evidence) != 1 || claim.Evidence[0].Source != "github" {
+				t.Fatalf("claim = %+v", claim)
+			}
+		})
+	}
+}
+
+func TestDefaultRegistryWiresHTTPAndLocal(t *testing.T) {
+	reg := defaultRegistry(t.TempDir())
+	if _, ok := reg["url_serving"].(*httpprovider.Checker); !ok {
+		t.Fatalf("url_serving = %T", reg["url_serving"])
+	}
+	if _, ok := reg["file_exists"].(*local.Checker); !ok {
+		t.Fatalf("file_exists = %T", reg["file_exists"])
 	}
 }
