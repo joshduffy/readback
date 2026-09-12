@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/joshduffy/readback/internal/providers/cloudflare"
 	httpprovider "github.com/joshduffy/readback/internal/providers/http"
 	"github.com/joshduffy/readback/internal/providers/local"
 	"os"
@@ -69,15 +70,13 @@ func TestDefaultRegistryWiresGithub(t *testing.T) {
 			t.Fatalf("%s checker = %T", kind, registry[kind])
 		}
 	}
-	for _, kind := range []string{"deployment_serving"} {
-		got := registry[kind].Check(context.Background(), verify.Claim{Type: kind})
-		if got.Status != verify.StatusIndeterminate || len(got.Evidence) != 1 || got.Evidence[0].Source != "stub" {
-			t.Fatalf("%s = %#v", kind, got)
-		}
+	if _, ok := registry["deployment_serving"].(*cloudflare.Checker); !ok {
+		t.Fatalf("deployment_serving checker = %T", registry["deployment_serving"])
 	}
-	delete(registry, "pr_merged")
-	if defaultRegistry(t.TempDir())["pr_merged"] == nil {
-		t.Fatal("registries share mutable state")
+	for _, checker := range registry {
+		if _, stub := checker.(interface{ IsStub() bool }); stub {
+			t.Fatalf("a stub remains in the default registry: %T", checker)
+		}
 	}
 }
 

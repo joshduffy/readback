@@ -15,6 +15,7 @@ import (
 	"github.com/joshduffy/readback/internal/memory"
 	"github.com/joshduffy/readback/internal/output"
 	"github.com/joshduffy/readback/internal/policy"
+	"github.com/joshduffy/readback/internal/providers/cloudflare"
 	"github.com/joshduffy/readback/internal/providers/github"
 	httpprovider "github.com/joshduffy/readback/internal/providers/http"
 	"github.com/joshduffy/readback/internal/providers/local"
@@ -35,6 +36,7 @@ func defaultRegistry(cwd string) verify.Registry {
 		registry[kind] = gh
 	}
 	registry["url_serving"] = httpprovider.New(httpprovider.Options{UserAgent: "readback/" + Version})
+	registry["deployment_serving"] = cloudflare.New(cloudflare.Options{HTTP: registry["url_serving"]})
 	registry["file_exists"] = local.New(cwd)
 	return registry
 }
