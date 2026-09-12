@@ -41,7 +41,7 @@ func TestCapabilitiesJSON(t *testing.T) {
 }
 
 func TestStubExitsCouldNotCheck(t *testing.T) {
-	for _, m := range []string{"verify-deploy", "policy", "hook", "fleet", "memory"} {
+	for _, m := range []string{"policy", "hook", "fleet", "memory"} {
 		code, out, _ := run(t, m, "--json")
 		if code != output.ExitCouldNotCheck {
 			t.Errorf("%s: stub must exit %d, got %d", m, output.ExitCouldNotCheck, code)

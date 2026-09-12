@@ -61,7 +61,7 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	root.AddCommand(
 		verify.Command(getW, registryFactory),
-		deploy.Command(getW),
+		deploy.Command(getW, registryFactory),
 		doctor.Command(getW),
 		policy.Command(getW),
 		hook.Command(getW),
