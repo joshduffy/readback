@@ -5,3 +5,5 @@ coverage.out
 .DS_Store
 .env
 .env.*
+.claude/settings.local.json
+.claude/worktrees/
