@@ -25,22 +25,33 @@ func init() {
 		Status:    registry.StatusStub,
 		Milestone: "v0.1",
 		Keywords:  []string{"claim", "handoff", "hallucination", "merged", "deployed", "sent"},
-		Schema: map[string]interface{}{
-			"$schema": "https://json-schema.org/draft/2020-12/schema",
-			"title":   "readback verify result",
-			"type":    "object",
-		},
+		Schema:    claimsSchema(),
 	})
 }
 
-type RegistryFactory func(cwd string) Registry
+// claimsSchema is the embedded claims.v1.json, printed by `readback schema verify`.
+func claimsSchema() map[string]interface{} {
+	var schema map[string]interface{}
+	if err := json.Unmarshal(ClaimsSchemaJSON(), &schema); err != nil {
+		panic("embedded claims schema is not valid JSON: " + err.Error())
+	}
+	return schema
+}
+
+// RegistryOptions carries CLI flags that shape how providers are built.
+type RegistryOptions struct {
+	NoCacheBust bool
+}
+
+type RegistryFactory func(cwd string, opts RegistryOptions) Registry
 
 func Command(w func() *output.Writer, factory RegistryFactory) *cobra.Command {
 	if factory == nil {
-		factory = func(string) Registry { return StubRegistry() }
+		factory = func(string, RegistryOptions) Registry { return StubRegistry() }
 	}
 	var assertionsPath, cwd string
 	var timeout time.Duration
+	var noCacheBust bool
 	cmd := &cobra.Command{
 		Use:   "verify <path>",
 		Short: "Verify typed claims from JSON or a readback-claims fence",
@@ -51,7 +62,7 @@ func Command(w func() *output.Writer, factory RegistryFactory) *cobra.Command {
 				return exitError(w().Emit(output.Result{Command: name, Exit: code, Error: err.Error()}, nil))
 			}
 			if len(args) == 0 {
-				return fail(2, fmt.Errorf("verify: no usable input; providers not implemented (milestone v0.1); supply a claims path"))
+				return fail(2, fmt.Errorf("verify: no usable input; supply a claims JSON path or a Markdown file with a readback-claims fence"))
 			}
 			if timeout <= 0 {
 				return fail(64, fmt.Errorf("timeout must be positive"))
@@ -103,7 +114,7 @@ func Command(w func() *output.Writer, factory RegistryFactory) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
-			result := Run(ctx, RunInput{Doc: doc, Assertions: assertions, Registry: factory(workingDir)})
+			result := Run(ctx, RunInput{Doc: doc, Assertions: assertions, Registry: factory(workingDir, RegistryOptions{NoCacheBust: noCacheBust})})
 			result.Input.Path, result.Input.Assertions = args[0], path
 			code := result.ExitCode()
 			return exitError(w().Emit(output.Result{Command: name, OK: code == 0, Exit: code, Data: result}, func(o io.Writer) {
@@ -121,6 +132,7 @@ func Command(w func() *output.Writer, factory RegistryFactory) *cobra.Command {
 	cmd.Flags().StringVar(&assertionsPath, "assertions", "", "operator-owned assertions file")
 	cmd.Flags().StringVar(&cwd, "cwd", "", "working directory for assertion discovery and local providers")
 	cmd.Flags().DurationVar(&timeout, "timeout", 120*time.Second, "overall verification timeout")
+	cmd.Flags().BoolVar(&noCacheBust, "no-cache-bust", false, "do not append the readback_bust query parameter to probed URLs")
 	return cmd
 }
 

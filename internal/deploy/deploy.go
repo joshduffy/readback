@@ -41,10 +41,11 @@ var shaPattern = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
 // through the same runner as verify, with the same envelope and exit codes.
 func Command(w func() *output.Writer, factory verify.RegistryFactory) *cobra.Command {
 	if factory == nil {
-		factory = func(string) verify.Registry { return verify.StubRegistry() }
+		factory = func(string, verify.RegistryOptions) verify.Registry { return verify.StubRegistry() }
 	}
 	var url, marker, health, worker, account, provider, assertionsPath, cwd string
 	var timeout time.Duration
+	var noCacheBust bool
 	cmd := &cobra.Command{
 		Use:   "verify-deploy <sha>",
 		Short: "Prove a commit SHA is serving: build, activation, marker observed at the edge",
@@ -112,7 +113,7 @@ func Command(w func() *output.Writer, factory verify.RegistryFactory) *cobra.Com
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
-			result := verify.Run(ctx, verify.RunInput{Doc: doc, Assertions: assertions, Registry: factory(workingDir)})
+			result := verify.Run(ctx, verify.RunInput{Doc: doc, Assertions: assertions, Registry: factory(workingDir, verify.RegistryOptions{NoCacheBust: noCacheBust})})
 			result.Input.Assertions = path
 			code := result.ExitCode()
 			return exitError(w().Emit(output.Result{Command: name, OK: code == 0, Exit: code, Data: result}, func(o io.Writer) {
@@ -136,6 +137,7 @@ func Command(w func() *output.Writer, factory verify.RegistryFactory) *cobra.Com
 	cmd.Flags().StringVar(&assertionsPath, "assertions", "", "operator-owned assertions file")
 	cmd.Flags().StringVar(&cwd, "cwd", "", "working directory for assertion discovery and local providers")
 	cmd.Flags().DurationVar(&timeout, "timeout", 120*time.Second, "overall verification timeout")
+	cmd.Flags().BoolVar(&noCacheBust, "no-cache-bust", false, "do not append the readback_bust query parameter to probed URLs")
 	return cmd
 }
 

@@ -19,17 +19,21 @@ import (
 )
 
 type Options struct {
-	Client  *http.Client
-	Token   string
-	Account string
-	HTTP    verify.Checker
+	Client           *http.Client
+	Token            string
+	Account          string
+	HTTP             verify.Checker
+	UserAgent        string
+	DisableCacheBust bool
 }
 
 type Checker struct {
-	client  *http.Client
-	token   string
-	account string
-	http    verify.Checker
+	client      *http.Client
+	token       string
+	account     string
+	http        verify.Checker
+	userAgent   string
+	noCacheBust bool
 }
 
 func New(opts Options) *Checker {
@@ -51,11 +55,15 @@ func New(opts Options) *Checker {
 	if client == nil {
 		client = &http.Client{Timeout: 20 * time.Second}
 	}
+	userAgent := opts.UserAgent
+	if userAgent == "" {
+		userAgent = "readback/dev"
+	}
 	checker := opts.HTTP
 	if checker == nil {
-		checker = httpprovider.New(httpprovider.Options{Client: client})
+		checker = httpprovider.New(httpprovider.Options{Client: client, UserAgent: userAgent, DisableCacheBust: opts.DisableCacheBust})
 	}
-	return &Checker{client: client, token: token, account: account, http: checker}
+	return &Checker{client: client, token: token, account: account, http: checker, userAgent: userAgent, noCacheBust: opts.DisableCacheBust}
 }
 
 func rung(source, name, status, reason string, observed map[string]any) verify.Outcome {
@@ -74,17 +82,24 @@ func (c *Checker) Check(ctx context.Context, claim verify.Claim) verify.Outcome 
 		return rung("cloudflare", "auth", verify.StatusIndeterminate, verify.ReasonAuthMissing, nil)
 	}
 	var outcomes []verify.Outcome
+	observed := 0 // rungs that actually fetched something at the edge
 	if claim.Worker != "" {
 		outcomes = append(outcomes, c.version(ctx, claim))
 	}
 	if claim.Health != "" {
 		outcomes = append(outcomes, c.health(ctx, claim))
+		observed++
 	}
-	if claim.Marker != "" {
+	if claim.Marker != "" && claim.URL != "" {
 		outcomes = append(outcomes, c.delegate(ctx, "marker", verify.Claim{Type: "url_serving", URL: claim.URL, Marker: claim.Marker, ExpectStatus: 200}))
+		observed++
 	}
 	for _, smoke := range claim.Smoke {
+		if smoke.URL == "" {
+			continue
+		}
 		outcomes = append(outcomes, c.delegate(ctx, "smoke", smoke))
+		observed++
 	}
 	result := verify.Outcome{Status: verify.StatusVerified}
 	for _, outcome := range outcomes {
@@ -93,7 +108,10 @@ func (c *Checker) Check(ctx context.Context, claim verify.Claim) verify.Outcome 
 			result.Status, result.Reason = outcome.Status, outcome.Reason
 		}
 	}
-	if len(outcomes) == 0 || len(outcomes) == 1 && claim.Worker != "" && result.Reason == verify.ReasonVersionSHAUnavailable {
+	// API-side evidence alone never verifies a deployment: without a health, marker, or
+	// smoke rung the claim is indeterminate (spec section 4). A contradicted rung still wins.
+	observable := observed > 0
+	if len(outcomes) == 0 || !observable && result.Status == verify.StatusVerified || len(outcomes) == 1 && claim.Worker != "" && result.Reason == verify.ReasonVersionSHAUnavailable {
 		result.Status, result.Reason = verify.StatusIndeterminate, verify.ReasonMarkerMissing
 		if len(result.Evidence) == 0 {
 			result.Evidence = rung("cloudflare", "observable", result.Status, result.Reason, nil).Evidence
@@ -291,10 +309,12 @@ func (c *Checker) health(ctx context.Context, claim verify.Claim) verify.Outcome
 	if err != nil {
 		return finish(verify.StatusIndeterminate, verify.ReasonProviderUnreachable, nil)
 	}
-	query := req.URL.Query()
-	query.Set("readback_bust", strconv.FormatInt(time.Now().UnixNano(), 10))
-	req.URL.RawQuery = query.Encode()
-	req.Header.Set("User-Agent", "readback/dev")
+	if !c.noCacheBust {
+		query := req.URL.Query()
+		query.Add("readback_bust", strconv.FormatInt(time.Now().UnixNano(), 10))
+		req.URL.RawQuery = query.Encode()
+	}
+	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Cache-Control", "no-cache")
 	var doer interface {
 		Do(*http.Request) (*http.Response, error)

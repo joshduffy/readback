@@ -15,7 +15,9 @@ func ExtractClaims(src []byte) (Document, error) {
 	src = bytes.TrimPrefix(src, []byte("\xef\xbb\xbf"))
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(src, &fields); err == nil {
-		if _, present := fields["version"]; present {
+		_, hasVersion := fields["version"]
+		_, hasClaims := fields["claims"]
+		if hasVersion || hasClaims {
 			return ParseDocument(src)
 		}
 	}

@@ -72,7 +72,8 @@ func (c *Checker) Check(ctx context.Context, claim verify.Claim) verify.Outcome 
 		if parsed, err := neturl.Parse(target); err == nil {
 			q := parsed.Query()
 			bust := bustCounter.Add(1)
-			q.Set("readback_bust", strconv.FormatInt(time.Now().UnixNano(), 10)+"-"+strconv.FormatInt(bust, 10))
+			// Add, never Set: an existing readback_bust value stays first and is what the server reads.
+			q.Add("readback_bust", strconv.FormatInt(time.Now().UnixNano(), 10)+"-"+strconv.FormatInt(bust, 10))
 			parsed.RawQuery = q.Encode()
 			target = parsed.String()
 		}

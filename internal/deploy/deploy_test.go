@@ -39,7 +39,7 @@ func run(t *testing.T, factory verify.RegistryFactory, args ...string) (int, str
 func TestVerifyDeployBuildsSingleClaim(t *testing.T) {
 	checker := &captureChecker{}
 	factoryCalls := 0
-	factory := func(string) verify.Registry {
+	factory := func(string, verify.RegistryOptions) verify.Registry {
 		factoryCalls++
 		return verify.Registry{"deployment_serving": checker}
 	}
@@ -81,7 +81,7 @@ func TestVerifyDeployBuildsSingleClaim(t *testing.T) {
 }
 
 func TestVerifyDeployRejectsShortSha(t *testing.T) {
-	factory := func(string) verify.Registry {
+	factory := func(string, verify.RegistryOptions) verify.Registry {
 		t.Fatal("factory must not be called for invalid input")
 		return nil
 	}
@@ -95,7 +95,7 @@ func TestVerifyDeployRejectsShortSha(t *testing.T) {
 }
 
 func TestVerifyDeployRejectsHttpUrl(t *testing.T) {
-	factory := func(string) verify.Registry {
+	factory := func(string, verify.RegistryOptions) verify.Registry {
 		t.Fatal("factory must not be called for invalid input")
 		return nil
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/joshduffy/readback/internal/providers/local"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -53,6 +54,57 @@ func TestStubExitsCouldNotCheck(t *testing.T) {
 	}
 }
 
+func TestSchemaVerifyPrintsClaimsSchema(t *testing.T) {
+	code, out, errb := run(t, "schema", "verify")
+	if code != 0 || !strings.Contains(out, `"readback-claims"`) && !strings.Contains(out, `"claims"`) || !strings.Contains(out, "pr_merged") {
+		t.Fatalf("exit %d stdout %s stderr %s", code, out, errb)
+	}
+	var printed struct {
+		Data map[string]any `json:"data"`
+	}
+	var embedded map[string]any
+	if json.Unmarshal([]byte(out), &printed) != nil || json.Unmarshal(verify.ClaimsSchemaJSON(), &embedded) != nil || !reflect.DeepEqual(printed.Data, embedded) {
+		t.Fatalf("schema verify must print the embedded claims schema exactly")
+	}
+}
+
+func TestNoCacheBustFlagReachesTheRegistry(t *testing.T) {
+	original := registryFactory
+	t.Cleanup(func() { registryFactory = original })
+	claims := filepath.Join("..", "..", "testdata", "verify", "claims.json")
+	sha := strings.Repeat("a", 40)
+	for _, tc := range []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"verify", claims}, false},
+		{[]string{"verify", "--no-cache-bust", claims}, true},
+		{[]string{"verify-deploy", sha, "--url", "https://example.test"}, false},
+		{[]string{"verify-deploy", sha, "--url", "https://example.test", "--no-cache-bust"}, true},
+	} {
+		var got *verify.RegistryOptions
+		registryFactory = func(_ string, opts verify.RegistryOptions) verify.Registry {
+			got = &opts
+			return verify.StubRegistry()
+		}
+		code, out, errb := run(t, tc.args...)
+		if got == nil || got.NoCacheBust != tc.want {
+			t.Fatalf("%v: factory options %+v (exit %d)\n%s%s", tc.args, got, code, out, errb)
+		}
+	}
+}
+
+func TestJSONWithoutVersionIsSchemaError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "claims.json")
+	if err := os.WriteFile(path, []byte(`{"claims":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errb := run(t, "verify", path)
+	if code != output.ExitUsage {
+		t.Fatalf("exit %d, want 64\n%s%s", code, out, errb)
+	}
+}
+
 func TestSchemaUnknownIsUsageError(t *testing.T) {
 	code, _, errb := run(t, "schema", "nope")
 	if code != output.ExitUsage || !strings.Contains(errb, "unknown module") {
@@ -61,7 +113,7 @@ func TestSchemaUnknownIsUsageError(t *testing.T) {
 }
 
 func TestDefaultRegistryWiresGithub(t *testing.T) {
-	registry := defaultRegistry(t.TempDir())
+	registry := defaultRegistry(t.TempDir(), verify.RegistryOptions{})
 	if len(registry) != 6 {
 		t.Fatalf("registry size = %d", len(registry))
 	}
@@ -100,7 +152,7 @@ func TestVerifyUsesFactory(t *testing.T) {
 				args = append(args, "--cwd", dir)
 			}
 			calls := 0
-			registryFactory = func(cwd string) verify.Registry {
+			registryFactory = func(cwd string, _ verify.RegistryOptions) verify.Registry {
 				calls++
 				if cwd != wantCWD {
 					t.Errorf("cwd = %q, want %q", cwd, wantCWD)
@@ -129,7 +181,7 @@ func TestVerifyUsesFactory(t *testing.T) {
 }
 
 func TestDefaultRegistryWiresHTTPAndLocal(t *testing.T) {
-	reg := defaultRegistry(t.TempDir())
+	reg := defaultRegistry(t.TempDir(), verify.RegistryOptions{})
 	if _, ok := reg["url_serving"].(*httpprovider.Checker); !ok {
 		t.Fatalf("url_serving = %T", reg["url_serving"])
 	}

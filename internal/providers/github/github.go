@@ -236,10 +236,10 @@ func (checker *Checker) checks(ctx context.Context, claim verify.Claim, endpoint
 		{Source: "github", Call: "GET " + endpoint + "/status", Observed: map[string]any{"combined_state": combined.State, "status_count": len(*combined.Statuses), "missing_names": missing}},
 	}
 	switch {
-	case len(missing) > 0:
-		return outcome(verify.StatusContradicted, verify.ReasonCheckMissing, evidence...)
 	case len(runs) == 0 && len(*combined.Statuses) == 0:
 		return outcome(verify.StatusIndeterminate, verify.ReasonCheckMissing, evidence...)
+	case len(missing) > 0:
+		return outcome(verify.StatusContradicted, verify.ReasonCheckMissing, evidence...)
 	case failing || combined.State == "failure" || combined.State == "error":
 		return outcome(verify.StatusContradicted, verify.ReasonChecksFailing, evidence...)
 	case pending || combined.State == "pending":

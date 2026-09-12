@@ -29,14 +29,15 @@ var Version = "dev"
 
 var registryFactory verify.RegistryFactory = defaultRegistry
 
-func defaultRegistry(cwd string) verify.Registry {
+func defaultRegistry(cwd string, opts verify.RegistryOptions) verify.Registry {
 	registry := verify.StubRegistry()
 	gh := github.New(nil)
 	for _, kind := range []string{"pr_merged", "checks_passed", "commit_on_branch"} {
 		registry[kind] = gh
 	}
-	registry["url_serving"] = httpprovider.New(httpprovider.Options{UserAgent: "readback/" + Version})
-	registry["deployment_serving"] = cloudflare.New(cloudflare.Options{HTTP: registry["url_serving"]})
+	userAgent := "readback/" + Version
+	registry["url_serving"] = httpprovider.New(httpprovider.Options{UserAgent: userAgent, DisableCacheBust: opts.NoCacheBust})
+	registry["deployment_serving"] = cloudflare.New(cloudflare.Options{HTTP: registry["url_serving"], UserAgent: userAgent, DisableCacheBust: opts.NoCacheBust})
 	registry["file_exists"] = local.New(cwd)
 	return registry
 }

@@ -95,7 +95,9 @@ func TestExtractIgnoresProseClaims(t *testing.T) {
 }
 
 func TestExtractJSONInputPassthrough(t *testing.T) {
-	for _, src := range []string{extractionDocument, `{"version":2,"claims":[]}`, `{"version":null}`, `{"version":1,"claims":[{"type":"file_exists","path":"../secret"}]}`} {
+	// A JSON object carrying "claims" but no "version" is a schema error, not a Markdown
+	// document without a fence.
+	for _, src := range []string{extractionDocument, `{"version":2,"claims":[]}`, `{"version":null}`, `{"version":1,"claims":[{"type":"file_exists","path":"../secret"}]}`, `{"claims":[]}`} {
 		want, wantErr := ParseDocument([]byte(src))
 		got, gotErr := ExtractClaims([]byte(src))
 		if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(gotErr, wantErr) {

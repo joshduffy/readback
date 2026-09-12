@@ -150,6 +150,10 @@ func TestChecksMissingRequiredName(t *testing.T) {
 func TestZeroChecksNeverVerified(t *testing.T) {
 	for _, name := range []string{"status-empty", "status-empty-failure", "status-empty-success"} {
 		assertOutcome(t, recorded(t, checksClaim(), "checks-empty", name), verify.StatusIndeterminate, verify.ReasonCheckMissing)
+		// A require list against zero checks is still indeterminate, never contradicted.
+		claim := checksClaim()
+		claim.Require = []string{"test"}
+		assertOutcome(t, recorded(t, claim, "checks-empty", name), verify.StatusIndeterminate, verify.ReasonCheckMissing)
 	}
 }
 func TestCommitOnBranchBehindIsVerified(t *testing.T) {

@@ -68,8 +68,35 @@ func versionChecker(t *testing.T, version string) *Checker {
 	})})
 }
 
+// deployment carries a marker rung by default: API-side version evidence alone never verifies.
 func deployment() verify.Claim {
-	return verify.Claim{Type: "deployment_serving", Provider: "cloudflare-workers", SHA: fixtureSHA, Worker: "test-worker", URL: "https://example.test"}
+	return verify.Claim{Type: "deployment_serving", Provider: "cloudflare-workers", SHA: fixtureSHA, Worker: "test-worker", URL: "https://example.test", Marker: "live"}
+}
+
+var okHTTP = checkFunc(func(context.Context, verify.Claim) verify.Outcome {
+	return verify.Outcome{Status: verify.StatusVerified}
+})
+
+func TestDeploymentVersionAloneNeverVerifies(t *testing.T) {
+	c := versionChecker(t, fixture(t, "version-with-sha.json"))
+	claim := deployment()
+	claim.Marker = ""
+	got := c.Check(context.Background(), claim)
+	wantOutcome(t, got, verify.StatusIndeterminate, verify.ReasonMarkerMissing)
+	if len(got.Evidence) != 1 || got.Evidence[0].Observed["rung"] != "version_sha" || got.Evidence[0].Observed["status"] != verify.StatusVerified {
+		t.Fatalf("version evidence must be kept: %+v", got.Evidence)
+	}
+	// A marker with no URL, or a smoke claim with no URL, is not an executed rung.
+	claim = deployment()
+	claim.URL = ""
+	wantOutcome(t, c.Check(context.Background(), claim), verify.StatusIndeterminate, verify.ReasonMarkerMissing)
+	claim = deployment()
+	claim.Marker = ""
+	claim.Smoke = []verify.Claim{{Type: "url_serving"}}
+	wantOutcome(t, c.Check(context.Background(), claim), verify.StatusIndeterminate, verify.ReasonMarkerMissing)
+	// A contradicted version still wins over the missing observable rung.
+	c = versionChecker(t, strings.ReplaceAll(fixture(t, "version-with-sha.json"), fixtureSHA, strings.Repeat("a", 40)))
+	wantOutcome(t, c.Check(context.Background(), claim), verify.StatusContradicted, verify.ReasonVersionSHAMismatch)
 }
 func wantOutcome(t *testing.T, got verify.Outcome, status, reason string) {
 	t.Helper()
@@ -82,7 +109,7 @@ func TestDeploymentVersionShaMatch(t *testing.T) {
 	c := versionChecker(t, fixture(t, "version-with-sha.json"))
 	got := c.Check(context.Background(), deployment())
 	wantOutcome(t, got, verify.StatusVerified, "")
-	if len(got.Evidence) != 1 || got.Evidence[0].Source != "cloudflare" || got.Evidence[0].Observed["rung"] != "version_sha" {
+	if len(got.Evidence) != 2 || got.Evidence[0].Source != "cloudflare" || got.Evidence[0].Observed["rung"] != "version_sha" || got.Evidence[1].Observed["rung"] != "marker" {
 		t.Fatalf("evidence: %+v", got.Evidence)
 	}
 }
@@ -120,7 +147,7 @@ func TestDeploymentVersionShaUnavailable(t *testing.T) {
 func TestDeploymentNotFoundIsContradicted(t *testing.T) {
 	for _, code := range []int{200, 404} {
 		body := fixture(t, "version-not-found.json")
-		c := New(Options{Token: testToken, Account: "test-account", Client: apiClient(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(code); fmt.Fprint(w, body) })})
+		c := New(Options{HTTP: okHTTP, Token: testToken, Account: "test-account", Client: apiClient(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(code); fmt.Fprint(w, body) })})
 		wantOutcome(t, c.Check(context.Background(), deployment()), verify.StatusContradicted, verify.ReasonDeploymentNotFound)
 	}
 }
@@ -129,7 +156,7 @@ func TestDeploymentAuthMissing(t *testing.T) {
 	t.Setenv("CLOUDFLARE_API_TOKEN", "")
 	wantOutcome(t, New(Options{}).Check(context.Background(), deployment()), verify.StatusIndeterminate, verify.ReasonAuthMissing)
 	for _, code := range []int{401, 403} {
-		c := New(Options{Token: testToken, Account: "test-account", Client: apiClient(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(code) })})
+		c := New(Options{HTTP: okHTTP, Token: testToken, Account: "test-account", Client: apiClient(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(code) })})
 		wantOutcome(t, c.Check(context.Background(), deployment()), verify.StatusIndeterminate, verify.ReasonAuthMissing)
 	}
 }
@@ -147,6 +174,7 @@ func healthCheck(t *testing.T, body string) verify.Outcome {
 	defer server.Close()
 	claim := deployment()
 	claim.Worker = ""
+	claim.Marker = ""
 	claim.Health = server.URL
 	return New(Options{Token: testToken, Account: "test-account"}).Check(context.Background(), claim)
 }
@@ -166,6 +194,7 @@ func TestDeploymentNoObservableRungIsIndeterminate(t *testing.T) {
 	for _, worker := range []string{"", "test-worker"} {
 		claim := deployment()
 		claim.Worker = worker
+		claim.Marker = ""
 		got := c.Check(context.Background(), claim)
 		wantOutcome(t, got, verify.StatusIndeterminate, verify.ReasonMarkerMissing)
 		if got.Evidence[0].Observed["message"] != "at least one observable rung is required" {
@@ -207,6 +236,7 @@ func TestDeploymentSmokeAllMustVerify(t *testing.T) {
 		})})
 		claim := deployment()
 		claim.Worker = ""
+		claim.Marker = ""
 		claim.Smoke = []verify.Claim{{Type: "url_serving", URL: "https://example.test/a"}, {Type: "url_serving", URL: "https://example.test/b"}}
 		got := c.Check(context.Background(), claim)
 		wantOutcome(t, got, status, reason)
@@ -241,6 +271,7 @@ func TestDefaultRegistryWiresCloudflare(t *testing.T) {
 	registry["deployment_serving"] = New(Options{Token: testToken, Account: "test-account"})
 	claim := deployment()
 	claim.Worker = ""
+	claim.Marker = ""
 	wantOutcome(t, registry["deployment_serving"].Check(context.Background(), claim), verify.StatusIndeterminate, verify.ReasonMarkerMissing)
 }
 func TestDeploymentActiveVersionsAndPrecedence(t *testing.T) {
@@ -260,7 +291,7 @@ func TestDeploymentActiveVersionsAndPrecedence(t *testing.T) {
 				fmt.Fprint(w, matching)
 			}
 		})
-		c := New(Options{Token: testToken, Account: "test-account", Client: client})
+		c := New(Options{Token: testToken, Account: "test-account", Client: client, HTTP: okHTTP})
 		status, reason := verify.StatusContradicted, verify.ReasonVersionSHAMismatch
 		if active {
 			status, reason = verify.StatusVerified, ""
@@ -324,7 +355,7 @@ func TestDeploymentAccountAndTokenResolution(t *testing.T) {
 					fmt.Fprint(w, matching)
 				}
 			})
-			opts := Options{Token: testToken, Client: client}
+			opts := Options{Token: testToken, Client: client, HTTP: okHTTP}
 			claim := deployment()
 			switch source {
 			case "claim":
@@ -342,4 +373,18 @@ func TestDeploymentAccountAndTokenResolution(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFallbackHTTPCheckerHonorsOptions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "keep=1" || r.Header.Get("User-Agent") != "readback/9.9" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		fmt.Fprint(w, "live")
+	}))
+	defer server.Close()
+	c := New(Options{Token: testToken, DisableCacheBust: true, UserAgent: "readback/9.9", Client: server.Client()})
+	claim := verify.Claim{Type: "deployment_serving", URL: server.URL + "/?keep=1", Marker: "live"}
+	wantOutcome(t, c.Check(context.Background(), claim), verify.StatusVerified, "")
 }

@@ -388,3 +388,34 @@ func TestUrlServingBodyErrorKeepsStatusEvidence(t *testing.T) {
 		t.Fatalf("want observed.final_url recorded, got %v", got)
 	}
 }
+
+func TestUrlServingNoCacheBustLeavesQueryAlone(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.RawQuery != "keep=1" {
+			w.WriteHeader(nethttp.StatusBadRequest)
+			_, _ = w.Write([]byte("query was modified: " + r.URL.RawQuery))
+			return
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	outcome := provider.New(provider.Options{DisableCacheBust: true}).Check(context.Background(), verify.Claim{Type: "url_serving", URL: srv.URL + "?keep=1", ExpectStatus: 200})
+	if outcome.Status != verify.StatusVerified {
+		t.Fatalf("want verified, got %+v", outcome)
+	}
+}
+
+func TestUrlServingExistingBustParamStaysFirst(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Query().Get("readback_bust") != "original" || len(r.URL.Query()["readback_bust"]) != 2 {
+			w.WriteHeader(nethttp.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	outcome := provider.New(provider.Options{}).Check(context.Background(), verify.Claim{Type: "url_serving", URL: srv.URL + "/?readback_bust=original", ExpectStatus: 200})
+	if outcome.Status != verify.StatusVerified {
+		t.Fatalf("existing readback_bust was clobbered: %+v", outcome)
+	}
+}
