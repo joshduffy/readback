@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -133,6 +134,27 @@ func TestDeploymentAnnotationHexRunNeverMatches(t *testing.T) {
 	claim.Marker = "live"
 	c := versionChecker(t, strings.ReplaceAll(fixture(t, "version-with-sha.json"), fixtureSHA, "build 123456789012"))
 	wantOutcome(t, c.Check(context.Background(), claim), verify.StatusIndeterminate, verify.ReasonVersionSHAUnavailable)
+}
+func TestDeploymentAnnotationAdjacentSHAs(t *testing.T) {
+	// Every delimited full 40-hex token in a message must be inspected: a wrong token
+	// adjacent to the claimed sha must not hide the match, and a 40-hex prefix of a
+	// longer hex run never counts.
+	wrong := strings.Repeat("a", 40)
+	for _, tc := range []struct {
+		name           string
+		message        string // raw JSON string content; `\n` decodes to a real newline
+		status, reason string
+	}{
+		{"adjacent-wrong-then-match", wrong + " " + fixtureSHA, verify.StatusVerified, ""},
+		{"adjacent-match-first", fixtureSHA + " " + wrong, verify.StatusVerified, ""},
+		{"adjacent-newline", wrong + `\n` + fixtureSHA, verify.StatusVerified, ""},
+		{"overlong-token", fixtureSHA + "a", verify.StatusIndeterminate, verify.ReasonVersionSHAUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := versionChecker(t, strings.ReplaceAll(fixture(t, "version-with-sha.json"), fixtureSHA, tc.message))
+			wantOutcome(t, c.Check(context.Background(), deployment()), tc.status, tc.reason)
+		})
+	}
 }
 func TestDeploymentVersionShaMismatch(t *testing.T) {
 	c := versionChecker(t, strings.ReplaceAll(fixture(t, "version-with-sha.json"), fixtureSHA, strings.Repeat("a", 40)))
@@ -433,6 +455,81 @@ func TestDeploymentActiveVersionsAndPrecedence(t *testing.T) {
 	})
 	wantOutcome(t, c.Check(context.Background(), claim), verify.StatusContradicted, verify.ReasonMarkerMissing)
 }
+func TestDeploymentMixedActiveVersions(t *testing.T) {
+	var cases []struct {
+		Name     string `json:"name"`
+		Versions []struct {
+			ID         string `json:"id"`
+			SHA        string `json:"sha"`
+			Status     int    `json:"status"`
+			APIError   int    `json:"api_error"`
+			Percentage int    `json:"percentage"`
+		} `json:"versions"`
+		Status           string `json:"status"`
+		Reason           string `json:"reason"`
+		Health           string `json:"health"`
+		DeploymentStatus int    `json:"deployment_status"`
+	}
+	if err := json.Unmarshal([]byte(fixture(t, "mixed-versions.json")), &cases); err != nil {
+		t.Fatal(err)
+	}
+	wrong := strings.Repeat("b", 40)
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			client := &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
+				status, body := 200, ""
+				switch {
+				case r.URL.Path == "/health":
+					sha := fixtureSHA
+					if tc.Health == "wrong" {
+						sha = wrong
+					}
+					body = `{"commit_sha":"` + sha + `"}`
+				case strings.HasSuffix(r.URL.Path, "/deployments"):
+					var entries []string
+					for _, v := range tc.Versions {
+						entries = append(entries, fmt.Sprintf(`{"version_id":%q,"percentage":%d}`, v.ID, v.Percentage))
+					}
+					status = tc.DeploymentStatus
+					body = `{"success":true,"result":{"deployments":[{"versions":[` + strings.Join(entries, ",") + `]}]}}`
+				default:
+					found := false
+					for _, v := range tc.Versions {
+						if !strings.HasSuffix(r.URL.Path, "/versions/"+v.ID) {
+							continue
+						}
+						if v.Percentage <= 0 {
+							t.Fatalf("inactive version was fetched: %s", v.ID)
+						}
+						status, body, found = v.Status, `{"success":true,"result":{"annotations":{}}}`, true
+						if v.SHA != "" {
+							sha := wrong
+							if v.SHA == "match" {
+								sha = fixtureSHA
+							}
+							body = `{"success":true,"result":{"annotations":{"workers/git-commit":"` + sha + `"}}}`
+						}
+						if v.APIError != 0 {
+							body = fmt.Sprintf(`{"success":false,"errors":[{"code":%d}],"result":null}`, v.APIError)
+						}
+						break
+					}
+					if !found {
+						t.Fatalf("unexpected provider call: %s", r.URL.Path)
+					}
+				}
+				return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
+			})}
+			checker := New(Options{Client: client, Token: testToken, Account: "test-account", URLChecker: okHTTP})
+			claim := deployment()
+			if tc.Health != "" {
+				claim.Health = "https://example.test/health"
+			}
+			wantOutcome(t, checker.Check(context.Background(), claim), tc.Status, tc.Reason)
+		})
+	}
+}
+
 func TestDeploymentContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
