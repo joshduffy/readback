@@ -59,7 +59,7 @@ func TestResultJSONMatchesSchema(t *testing.T) {
 	if err = json.Unmarshal(record["claims"], &claims); err != nil {
 		t.Fatal(err)
 	}
-	if string(claims[0]["reason"]) != "null" || string(claims[0]["evidence"]) != "[]" || string(claims[0]["checked_at"]) != `"2026-09-12T18:02:11Z"` {
+	if string(claims[0]["reason"]) != "null" || string(claims[0]["evidence"]) != "[]" || string(claims[0]["checked_at"]) != `"2026-09-12T18:02:11Z"` || string(claims[0]["claim"]) != `{"type":"file_exists"}` {
 		t.Fatalf("JSON: %s", data)
 	}
 	if _, ok := claims[0]["Claim"]; ok {
@@ -67,6 +67,77 @@ func TestResultJSONMatchesSchema(t *testing.T) {
 	}
 	if r.ExitCode() != 0 {
 		t.Fatal(r)
+	}
+}
+
+func TestCheckedConditionRedactsCredentials(t *testing.T) {
+	const repeated = "repeated-sensitive-value"
+	condition := checkedCondition(Claim{
+		Type: "url_serving",
+		URL:  "https://user:password@example.com/path?keep=1&token=secret#private",
+		Header: map[string]string{
+			"Authorization": "authorization-sensitive-value",
+			"Bearer":        "bearer-sensitive-value",
+			"PRIVATE-TOKEN": repeated,
+			"X-Auth-Token":  repeated,
+			"X-CSRF-Token":  "csrf-sensitive-value",
+			"X-Version":     "one",
+		},
+	})
+	data, err := json.Marshal(condition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{
+		"user", "password", "secret", "private", repeated,
+		"authorization-sensitive-value", "bearer-sensitive-value", "csrf-sensitive-value",
+	} {
+		if strings.Contains(string(data), secret) {
+			t.Fatalf("condition leaked %q in %s", secret, data)
+		}
+	}
+	for _, safe := range []string{"example.com", "keep=1", "X-Version", "one", "rb_"} {
+		if !strings.Contains(string(data), safe) {
+			t.Fatalf("condition lost %q in %s", safe, data)
+		}
+	}
+	if condition.Header["PRIVATE-TOKEN"] != condition.Header["X-Auth-Token"] ||
+		condition.Header["PRIVATE-TOKEN"] == condition.Header["X-CSRF-Token"] {
+		t.Fatalf("repeated and distinct header values lost their relationship: %#v", condition.Header)
+	}
+}
+
+func TestCheckedConditionOmitsUnusedClaimDefaults(t *testing.T) {
+	condition := checkedCondition(Claim{
+		Type: "file_exists", Path: "go.mod", Contains: "module ", ExpectStatus: 200,
+		URL: "https://user:password@example.com/?token=secret",
+	})
+	data, err := json.Marshal(condition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), `{"type":"file_exists","path":"go.mod","contains":"module "}`; got != want {
+		t.Fatalf("condition = %s, want %s", got, want)
+	}
+}
+
+func TestTerminalResultEscapesControlCharacters(t *testing.T) {
+	result := RunResult{
+		Summary: Summary{RequiredUnmet: []Requirement{}},
+		Claims: []ClaimResult{{
+			Type: "file_exists", ID: "line\n\x1b[31mred", Status: StatusVerified,
+			Evidence: []Evidence{{Source: "local\nsource", Call: "stat\x1b[2J", Observed: map[string]any{"value": "line\nvalue"}}},
+		}},
+	}
+	var out bytes.Buffer
+	renderRunResult(&out, result)
+	if strings.Contains(out.String(), "\x1b") || strings.Contains(out.String(), "line\nsource") {
+		t.Fatalf("raw control character in %q", out.String())
+	}
+	for _, escaped := range []string{`local\nsource`, `\x1b[31m`, `stat\x1b[2J`, `line\nvalue`} {
+		if !strings.Contains(out.String(), escaped) {
+			t.Fatalf("missing %q in %q", escaped, out.String())
+		}
 	}
 }
 func TestUnsupportedTypeNeverReachesChecker(t *testing.T) {

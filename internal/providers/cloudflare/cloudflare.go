@@ -23,18 +23,20 @@ type Options struct {
 	Client           *http.Client
 	Token            string
 	Account          string
-	HTTP             verify.Checker
+	URLChecker       verify.Checker
 	UserAgent        string
 	DisableCacheBust bool
+	Assertions       *verify.Assertions
 }
 
 type Checker struct {
 	client      *http.Client
 	token       string
 	account     string
-	http        verify.Checker
+	urlChecker  verify.Checker
 	userAgent   string
 	noCacheBust bool
+	assertions  *verify.Assertions
 
 	mu         sync.Mutex
 	discovered string // account id resolved from /accounts, cached for the checker's lifetime
@@ -63,11 +65,16 @@ func New(opts Options) *Checker {
 	if userAgent == "" {
 		userAgent = "readback/dev"
 	}
-	checker := opts.HTTP
+	checker := opts.URLChecker
 	if checker == nil {
-		checker = httpprovider.New(httpprovider.Options{Client: client, UserAgent: userAgent, DisableCacheBust: opts.DisableCacheBust})
+		checker = httpprovider.New(httpprovider.Options{
+			Client: client, UserAgent: userAgent, DisableCacheBust: opts.DisableCacheBust, Assertions: opts.Assertions,
+		})
 	}
-	return &Checker{client: client, token: token, account: account, http: checker, userAgent: userAgent, noCacheBust: opts.DisableCacheBust}
+	return &Checker{
+		client: client, token: token, account: account, urlChecker: checker,
+		userAgent: userAgent, noCacheBust: opts.DisableCacheBust, assertions: opts.Assertions,
+	}
 }
 
 func rung(source, name, status, reason string, observed map[string]any) verify.Outcome {
@@ -82,16 +89,21 @@ func rung(source, name, status, reason string, observed map[string]any) verify.O
 }
 
 func (c *Checker) Check(ctx context.Context, claim verify.Claim) verify.Outcome {
-	if c.token == "" {
+	if c.token == "" && claim.Worker != "" {
 		return rung("cloudflare", "auth", verify.StatusIndeterminate, verify.ReasonAuthMissing, nil)
 	}
 	var outcomes []verify.Outcome
 	observed := 0 // rungs that actually fetched something at the edge
+	shaVerified := false
 	if claim.Worker != "" {
-		outcomes = append(outcomes, c.version(ctx, claim))
+		outcome := c.version(ctx, claim)
+		outcomes = append(outcomes, outcome)
+		shaVerified = outcome.Status == verify.StatusVerified
 	}
 	if claim.Health != "" {
-		outcomes = append(outcomes, c.health(ctx, claim))
+		outcome := c.health(ctx, claim)
+		outcomes = append(outcomes, outcome)
+		shaVerified = shaVerified || outcome.Status == verify.StatusVerified
 		observed++
 	}
 	if claim.Marker != "" && claim.URL != "" {
@@ -108,6 +120,9 @@ func (c *Checker) Check(ctx context.Context, claim verify.Claim) verify.Outcome 
 	result := verify.Outcome{Status: verify.StatusVerified}
 	for _, outcome := range outcomes {
 		result.Evidence = append(result.Evidence, outcome.Evidence...)
+		if shaVerified && outcome.Status == verify.StatusIndeterminate && outcome.Reason == verify.ReasonVersionSHAUnavailable {
+			continue
+		}
 		if outcome.Status == verify.StatusContradicted && result.Status != verify.StatusContradicted || outcome.Status == verify.StatusIndeterminate && result.Status == verify.StatusVerified {
 			result.Status, result.Reason = outcome.Status, outcome.Reason
 		}
@@ -115,23 +130,37 @@ func (c *Checker) Check(ctx context.Context, claim verify.Claim) verify.Outcome 
 	// API-side evidence alone never verifies a deployment: without a health, marker, or
 	// smoke rung the claim is indeterminate (spec section 4). A contradicted rung still wins.
 	observable := observed > 0
-	if len(outcomes) == 0 || !observable && result.Status == verify.StatusVerified || len(outcomes) == 1 && claim.Worker != "" && result.Reason == verify.ReasonVersionSHAUnavailable {
+	if result.Status == verify.StatusVerified && !shaVerified {
+		result.Status, result.Reason = verify.StatusIndeterminate, verify.ReasonVersionSHAUnavailable
+	}
+	if result.Status == verify.StatusVerified && !observable {
 		result.Status, result.Reason = verify.StatusIndeterminate, verify.ReasonMarkerMissing
+	}
+	if len(outcomes) == 0 {
+		result.Status, result.Reason = verify.StatusIndeterminate, verify.ReasonVersionSHAUnavailable
 		if len(result.Evidence) == 0 {
 			result.Evidence = rung("cloudflare", "observable", result.Status, result.Reason, nil).Evidence
 		}
+	}
+	if !shaVerified && result.Status != verify.StatusContradicted {
+		result.Evidence[len(result.Evidence)-1].Observed["message"] = "a provider or health response must report the claimed commit sha"
+	} else if !observable && result.Status != verify.StatusContradicted {
 		result.Evidence[len(result.Evidence)-1].Observed["message"] = "at least one observable rung is required"
 	}
+	if c.token == "" {
+		return result
+	}
 	// Even injected transports and checkers must not echo the credential into evidence.
+	tokenPseudonym := verify.Pseudonymize("cloudflare-api-token", c.token)
 	for i := range result.Evidence {
 		e := &result.Evidence[i]
-		result.Reason = strings.ReplaceAll(result.Reason, c.token, "[redacted]")
-		e.Source = strings.ReplaceAll(e.Source, c.token, "[redacted]")
-		e.Call = strings.ReplaceAll(e.Call, c.token, "[redacted]")
+		result.Reason = strings.ReplaceAll(result.Reason, c.token, tokenPseudonym)
+		e.Source = strings.ReplaceAll(e.Source, c.token, tokenPseudonym)
+		e.Call = strings.ReplaceAll(e.Call, c.token, tokenPseudonym)
 		if data, err := json.Marshal(e.Observed); err == nil {
 			var clean map[string]any
 			encodedToken, _ := json.Marshal(c.token)
-			if json.Unmarshal([]byte(strings.ReplaceAll(string(data), string(encodedToken[1:len(encodedToken)-1]), "[redacted]")), &clean) == nil {
+			if json.Unmarshal([]byte(strings.ReplaceAll(string(data), string(encodedToken[1:len(encodedToken)-1]), tokenPseudonym)), &clean) == nil {
 				e.Observed = clean
 			} else {
 				e.Observed = map[string]any{"message": "evidence unavailable"}
@@ -146,7 +175,7 @@ func (c *Checker) Check(ctx context.Context, claim verify.Claim) verify.Outcome 
 func (c *Checker) delegate(ctx context.Context, name string, claim verify.Claim) verify.Outcome {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	outcome := c.http.Check(ctx, claim)
+	outcome := c.urlChecker.Check(ctx, claim)
 	if outcome.Status != verify.StatusVerified && outcome.Status != verify.StatusContradicted && outcome.Status != verify.StatusIndeterminate {
 		outcome.Status, outcome.Reason = verify.StatusIndeterminate, verify.ReasonProviderUnreachable
 	}
@@ -303,6 +332,17 @@ func (c *Checker) health(ctx context.Context, claim verify.Claim) verify.Outcome
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	allowed, urlErr := verify.URLAllowed(c.assertions, claim.Health)
+	if urlErr != nil {
+		return finish(verify.StatusIndeterminate, verify.ReasonProviderUnreachable, map[string]any{
+			"url_refused": verify.SanitizeURL(claim.Health), "malformed_url": true,
+		})
+	}
+	if !allowed {
+		return finish(verify.StatusContradicted, verify.ReasonHostNotAllowed, map[string]any{
+			"url_refused": verify.SanitizeURL(claim.Health),
+		})
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, claim.Health, nil)
 	if err != nil {
 		return finish(verify.StatusIndeterminate, verify.ReasonProviderUnreachable, nil)
@@ -314,29 +354,26 @@ func (c *Checker) health(ctx context.Context, claim verify.Claim) verify.Outcome
 	}
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Cache-Control", "no-cache")
-	var doer interface {
-		Do(*http.Request) (*http.Response, error)
-	}
-	if injected, ok := c.http.(interface {
-		Do(*http.Request) (*http.Response, error)
-	}); ok {
-		doer = injected
-	} else {
-		client := *c.client
-		client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
-			if len(via) > 5 || via[len(via)-1].URL.Scheme == "https" && next.URL.Scheme == "http" {
-				return http.ErrUseLastResponse
-			}
-			if c.client.CheckRedirect != nil {
-				return c.client.CheckRedirect(next, via)
-			}
-			return nil
-		}
-		doer = &client
-	}
-	resp, err := doer.Do(req)
+	client := *c.client
+	guard := httpprovider.NewRedirectGuard(c.assertions, 5, c.client.CheckRedirect)
+	client.CheckRedirect = guard.CheckRedirect
+	resp, err := client.Do(req)
 	if err != nil {
-		return finish(verify.StatusIndeterminate, verify.ReasonProviderUnreachable, nil)
+		if guard.MalformedURL != "" {
+			return finish(verify.StatusIndeterminate, verify.ReasonProviderUnreachable, map[string]any{
+				"url_refused": verify.SanitizeURL(guard.MalformedURL), "malformed_url": true,
+			})
+		}
+		if guard.RefusedURL != "" {
+			return finish(verify.StatusContradicted, verify.ReasonHostNotAllowed, map[string]any{
+				"url_refused": verify.SanitizeURL(guard.RefusedURL),
+			})
+		}
+		observed := map[string]any{"error": verify.SanitizeURLs(err.Error())}
+		if guard.DowngradeRefused {
+			observed["downgrade_refused"] = true
+		}
+		return finish(verify.StatusIndeterminate, verify.ReasonProviderUnreachable, observed)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

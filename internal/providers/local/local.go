@@ -72,6 +72,7 @@ func (c *Checker) Check(ctx context.Context, claim verify.Claim) verify.Outcome 
 		if !found {
 			if truncated {
 				observed["truncated"] = true
+				return verify.Outcome{Status: verify.StatusIndeterminate, Reason: verify.ReasonResponseTruncated, Evidence: evidence(observed)}
 			}
 			return verify.Outcome{
 				Status:   verify.StatusContradicted,
@@ -84,10 +85,7 @@ func (c *Checker) Check(ctx context.Context, claim verify.Claim) verify.Outcome 
 	return verify.Outcome{Status: verify.StatusVerified, Evidence: evidence(observed)}
 }
 
-// contains streams up to maxContainsRead bytes of path, checking ctx between
-// chunks. truncated reports that the file continues beyond the cap, so a
-// needle appearing only past the cap is reported as missing with truncation
-// noted in evidence.
+// Retain the previous chunk's suffix so a match can cross a read boundary.
 func (c *Checker) contains(ctx context.Context, path, needle string) (found, truncated bool, err error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -126,5 +124,13 @@ func (c *Checker) contains(ctx context.Context, path, needle string) (found, tru
 			return false, false, readErr
 		}
 	}
-	return false, true, nil
+	if err := ctx.Err(); err != nil {
+		return false, false, err
+	}
+	var extra [1]byte
+	n, err := f.Read(extra[:])
+	if err == io.EOF {
+		err = nil
+	}
+	return false, n > 0, err
 }

@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -34,10 +35,34 @@ func LoadAssertions(path string) (Assertions, error) {
 func FindAssertions(cwd string) (path string, ok bool) {
 	path = filepath.Join(cwd, "readback.assertions.yaml")
 	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() {
+	if errors.Is(err, os.ErrNotExist) {
 		return "", false
 	}
+	if err != nil || !info.Mode().IsRegular() {
+		return path, true
+	}
 	return path, true
+}
+
+func ResolveAssertions(cwd, explicitPath string) (*Assertions, string, error) {
+	path := explicitPath
+	if path == "" {
+		path = filepath.Join(cwd, "readback.assertions.yaml")
+		info, err := os.Stat(path)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			return nil, "", nil
+		case err != nil:
+			return nil, "", err
+		case !info.Mode().IsRegular():
+			return nil, "", &os.PathError{Op: "read", Path: path, Err: errors.New("assertions path is not a regular file")}
+		}
+	}
+	assertions, err := LoadAssertions(path)
+	if err != nil {
+		return nil, "", err
+	}
+	return &assertions, path, nil
 }
 
 func ParseAssertions(data []byte) (Assertions, error) {

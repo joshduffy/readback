@@ -12,19 +12,17 @@ type Status string
 
 const (
 	StatusPlanned Status = "planned"
-	StatusStub    Status = "stub" // command exists, exits 2 with a structured not-implemented error
 	StatusBeta    Status = "beta"
 	StatusStable  Status = "stable"
 )
 
 type Module struct {
-	Name      string   `json:"name"`
-	Summary   string   `json:"summary"`
-	Status    Status   `json:"status"`
-	Milestone string   `json:"milestone"`
-	Keywords  []string `json:"keywords"`
-	// Schema is the JSON schema (draft 2020-12) of the module's Data payload.
-	Schema map[string]interface{} `json:"schema,omitempty"`
+	Name      string                            `json:"name"`
+	Summary   string                            `json:"summary"`
+	Status    Status                            `json:"status"`
+	Milestone string                            `json:"milestone"`
+	Keywords  []string                          `json:"keywords"`
+	Schemas   map[string]map[string]interface{} `json:"schemas,omitempty"`
 }
 
 var modules = map[string]Module{}

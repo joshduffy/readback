@@ -25,8 +25,8 @@ homebrew_casks:
     repository:
       owner: joshduffy
       name: homebrew-tap
-    homepage: https://github.com/joshduffy/readback
-    description: Agent ops for your own machine. Agents claim; readback verifies.
+    homepage: https://readbackcli.dev/
+    description: Check coding agent claims against files, GitHub, and web responses
     hooks:
       post:
         install: |

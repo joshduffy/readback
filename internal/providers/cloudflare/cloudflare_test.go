@@ -63,7 +63,7 @@ func versionChecker(t *testing.T, version string) *Checker {
 			fmt.Fprint(w, version)
 		}
 	})
-	return New(Options{Client: client, Token: testToken, Account: "test-account", HTTP: checkFunc(func(context.Context, verify.Claim) verify.Outcome {
+	return New(Options{Client: client, Token: testToken, Account: "test-account", URLChecker: checkFunc(func(context.Context, verify.Claim) verify.Outcome {
 		return verify.Outcome{Status: verify.StatusVerified}
 	})})
 }
@@ -147,7 +147,7 @@ func TestDeploymentVersionShaUnavailable(t *testing.T) {
 func TestDeploymentNotFoundIsContradicted(t *testing.T) {
 	for _, code := range []int{200, 404} {
 		body := fixture(t, "version-not-found.json")
-		c := New(Options{HTTP: okHTTP, Token: testToken, Account: "test-account", Client: apiClient(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(code); fmt.Fprint(w, body) })})
+		c := New(Options{URLChecker: okHTTP, Token: testToken, Account: "test-account", Client: apiClient(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(code); fmt.Fprint(w, body) })})
 		wantOutcome(t, c.Check(context.Background(), deployment()), verify.StatusContradicted, verify.ReasonDeploymentNotFound)
 	}
 }
@@ -156,7 +156,7 @@ func TestDeploymentAuthMissing(t *testing.T) {
 	t.Setenv("CLOUDFLARE_API_TOKEN", "")
 	wantOutcome(t, New(Options{}).Check(context.Background(), deployment()), verify.StatusIndeterminate, verify.ReasonAuthMissing)
 	for _, code := range []int{401, 403} {
-		c := New(Options{HTTP: okHTTP, Token: testToken, Account: "test-account", Client: apiClient(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(code) })})
+		c := New(Options{URLChecker: okHTTP, Token: testToken, Account: "test-account", Client: apiClient(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(code) })})
 		wantOutcome(t, c.Check(context.Background(), deployment()), verify.StatusIndeterminate, verify.ReasonAuthMissing)
 	}
 }
@@ -183,12 +183,135 @@ func TestDeploymentHealthShaPrefix(t *testing.T) {
 		wantOutcome(t, healthCheck(t, `{"commit_sha":"`+fixtureSHA[:n]+`"}`), verify.StatusVerified, "")
 	}
 }
+
+func TestDeploymentHealthCanSupplyUnavailableVersionSHA(t *testing.T) {
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `{"commit_sha":"%s"}`, fixtureSHA)
+	}))
+	defer health.Close()
+	checker := versionChecker(t, fixture(t, "version-without-sha.json"))
+	claim := deployment()
+	claim.Marker = ""
+	claim.Health = health.URL
+	wantOutcome(t, checker.Check(context.Background(), claim), verify.StatusVerified, "")
+
+	checker = versionChecker(t, strings.ReplaceAll(fixture(t, "version-with-sha.json"), fixtureSHA, strings.Repeat("b", 40)))
+	wantOutcome(t, checker.Check(context.Background(), claim), verify.StatusContradicted, verify.ReasonVersionSHAMismatch)
+}
 func TestDeploymentHealthShaMismatch(t *testing.T) {
 	for _, sha := range []string{fixtureSHA[:11], strings.Repeat("b", 40), ""} {
 		wantOutcome(t, healthCheck(t, `{"commit_sha":"`+sha+`"}`), verify.StatusContradicted, verify.ReasonHealthSHAMismatch)
 	}
 	wantOutcome(t, healthCheck(t, "not json"), verify.StatusIndeterminate, verify.ReasonProviderUnreachable)
 }
+
+func TestDeploymentHealthRefusesDisallowedRedirectBeforeRequest(t *testing.T) {
+	destinationCalls := 0
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		destinationCalls++
+		fmt.Fprintf(w, `{"commit_sha":"%s"}`, fixtureSHA)
+	}))
+	defer destination.Close()
+	foreignURL := strings.Replace(destination.URL, "127.0.0.1", "localhost", 1)
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, foreignURL, http.StatusFound)
+	}))
+	defer source.Close()
+	claim := deployment()
+	claim.Worker = ""
+	claim.Marker = ""
+	claim.Health = source.URL
+	checker := New(Options{
+		Token: testToken, Client: source.Client(),
+		Assertions: &verify.Assertions{AllowHosts: []string{"127.0.0.1"}},
+	})
+	got := checker.Check(context.Background(), claim)
+	wantOutcome(t, got, verify.StatusContradicted, verify.ReasonHostNotAllowed)
+	if destinationCalls != 0 {
+		t.Fatalf("destination received %d requests", destinationCalls)
+	}
+}
+
+func TestDeploymentHealthRechecksDowngradeAfterCallerRedirectPolicy(t *testing.T) {
+	destinationCalls := 0
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		destinationCalls++
+		fmt.Fprintf(w, `{"commit_sha":"%s"}`, fixtureSHA)
+	}))
+	defer destination.Close()
+	source := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/next", http.StatusFound)
+	}))
+	defer source.Close()
+	plainURL, err := url.Parse(destination.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := source.Client()
+	client.CheckRedirect = func(next *http.Request, _ []*http.Request) error {
+		next.URL = plainURL
+		return nil
+	}
+	claim := deployment()
+	claim.Worker = ""
+	claim.Marker = ""
+	claim.Health = source.URL
+	got := New(Options{Token: testToken, Client: client}).Check(context.Background(), claim)
+	wantOutcome(t, got, verify.StatusIndeterminate, verify.ReasonProviderUnreachable)
+	if destinationCalls != 0 {
+		t.Fatalf("destination received %d requests", destinationCalls)
+	}
+	if got.Evidence[0].Observed["downgrade_refused"] != true {
+		t.Fatalf("missing downgrade evidence: %+v", got.Evidence)
+	}
+}
+
+func TestDeploymentHealthMalformedRedirectIsIndeterminate(t *testing.T) {
+	destinationCalls := 0
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/next" {
+			destinationCalls++
+		}
+		http.Redirect(w, r, "/next?a=1;b=2", http.StatusFound)
+	}))
+	defer source.Close()
+	claim := deployment()
+	claim.Worker = ""
+	claim.Marker = ""
+	claim.Health = source.URL
+	got := New(Options{
+		Client: source.Client(), Assertions: &verify.Assertions{AllowHosts: []string{"127.0.0.1"}},
+	}).Check(context.Background(), claim)
+	wantOutcome(t, got, verify.StatusIndeterminate, verify.ReasonProviderUnreachable)
+	refused, ok := got.Evidence[0].Observed["url_refused"].(string)
+	if destinationCalls != 0 || !ok || !strings.Contains(refused, "malformed=rb_") || got.Evidence[0].Observed["malformed_url"] != true {
+		t.Fatalf("outcome = %+v, destination calls = %d", got, destinationCalls)
+	}
+}
+
+func TestDeploymentHealthRedactsMalformedRelativeLocationError(t *testing.T) {
+	const secret = "dummy-relative-location-secret"
+	location := "/%zz?token=" + secret
+	requests := 0
+	source := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.Header().Set("Location", location)
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer source.Close()
+	claim := deployment()
+	claim.Worker = ""
+	claim.Marker = ""
+	claim.Health = source.URL
+	got := New(Options{Client: source.Client(), DisableCacheBust: true}).Check(context.Background(), claim)
+	wantOutcome(t, got, verify.StatusIndeterminate, verify.ReasonProviderUnreachable)
+	errorText, ok := got.Evidence[0].Observed["error"].(string)
+	if requests != 1 || !ok || strings.Contains(errorText, secret) || strings.Count(errorText, verify.SanitizeURL(location)) != 2 ||
+		!strings.Contains(errorText, "failed to parse Location header") {
+		t.Fatalf("outcome = %+v, requests = %d", got, requests)
+	}
+}
+
 func TestDeploymentNoObservableRungIsIndeterminate(t *testing.T) {
 	c := versionChecker(t, fixture(t, "version-without-sha.json"))
 	for _, worker := range []string{"", "test-worker"} {
@@ -196,15 +319,15 @@ func TestDeploymentNoObservableRungIsIndeterminate(t *testing.T) {
 		claim.Worker = worker
 		claim.Marker = ""
 		got := c.Check(context.Background(), claim)
-		wantOutcome(t, got, verify.StatusIndeterminate, verify.ReasonMarkerMissing)
-		if got.Evidence[0].Observed["message"] != "at least one observable rung is required" {
+		wantOutcome(t, got, verify.StatusIndeterminate, verify.ReasonVersionSHAUnavailable)
+		if got.Evidence[0].Observed["message"] != "a provider or health response must report the claimed commit sha" {
 			t.Fatal(got)
 		}
 	}
 }
 func TestDeploymentMarkerRungDelegatesToHTTP(t *testing.T) {
 	calls := 0
-	c := New(Options{Token: testToken, Account: "test-account", HTTP: checkFunc(func(ctx context.Context, claim verify.Claim) verify.Outcome {
+	c := New(Options{Token: testToken, Account: "test-account", URLChecker: checkFunc(func(ctx context.Context, claim verify.Claim) verify.Outcome {
 		calls++
 		if claim.Type != "url_serving" || claim.URL != "https://example.test" || claim.Marker != "live" || claim.ExpectStatus != 200 {
 			t.Fatalf("claim %+v", claim)
@@ -215,7 +338,7 @@ func TestDeploymentMarkerRungDelegatesToHTTP(t *testing.T) {
 	claim.Worker = ""
 	claim.Marker = "live"
 	got := c.Check(context.Background(), claim)
-	wantOutcome(t, got, verify.StatusVerified, "")
+	wantOutcome(t, got, verify.StatusIndeterminate, verify.ReasonVersionSHAUnavailable)
 	if calls != 1 || got.Evidence[0].Source != "http" {
 		t.Fatal(got)
 	}
@@ -227,7 +350,7 @@ func TestDeploymentSmokeAllMustVerify(t *testing.T) {
 		if status != verify.StatusVerified {
 			reason = verify.ReasonMarkerMissing
 		}
-		c := New(Options{Token: testToken, HTTP: checkFunc(func(context.Context, verify.Claim) verify.Outcome {
+		c := New(Options{Token: testToken, URLChecker: checkFunc(func(context.Context, verify.Claim) verify.Outcome {
 			calls++
 			if calls == 2 {
 				return verify.Outcome{Status: status, Reason: reason}
@@ -239,7 +362,11 @@ func TestDeploymentSmokeAllMustVerify(t *testing.T) {
 		claim.Marker = ""
 		claim.Smoke = []verify.Claim{{Type: "url_serving", URL: "https://example.test/a"}, {Type: "url_serving", URL: "https://example.test/b"}}
 		got := c.Check(context.Background(), claim)
-		wantOutcome(t, got, status, reason)
+		wantStatus, wantReason := status, reason
+		if status == verify.StatusVerified {
+			wantStatus, wantReason = verify.StatusIndeterminate, verify.ReasonVersionSHAUnavailable
+		}
+		wantOutcome(t, got, wantStatus, wantReason)
 		if calls != 2 || len(got.Evidence) != 2 {
 			t.Fatal(got)
 		}
@@ -249,7 +376,7 @@ func TestDeploymentTokenNeverInEvidence(t *testing.T) {
 	c := versionChecker(t, `{"success":false,"errors":[{"code":123,"message":"`+testToken+`"}]}`)
 	claim := deployment()
 	claim.Marker = "live"
-	c.http = checkFunc(func(context.Context, verify.Claim) verify.Outcome {
+	c.urlChecker = checkFunc(func(context.Context, verify.Claim) verify.Outcome {
 		return verify.Outcome{Status: verify.StatusVerified, Evidence: []verify.Evidence{{Call: testToken, Observed: map[string]any{"nested": []string{testToken}}}}}
 	})
 	got := c.Check(context.Background(), claim)
@@ -272,7 +399,7 @@ func TestDefaultRegistryWiresCloudflare(t *testing.T) {
 	claim := deployment()
 	claim.Worker = ""
 	claim.Marker = ""
-	wantOutcome(t, registry["deployment_serving"].Check(context.Background(), claim), verify.StatusIndeterminate, verify.ReasonMarkerMissing)
+	wantOutcome(t, registry["deployment_serving"].Check(context.Background(), claim), verify.StatusIndeterminate, verify.ReasonVersionSHAUnavailable)
 }
 func TestDeploymentActiveVersionsAndPrecedence(t *testing.T) {
 	matching := fixture(t, "version-with-sha.json")
@@ -291,7 +418,7 @@ func TestDeploymentActiveVersionsAndPrecedence(t *testing.T) {
 				fmt.Fprint(w, matching)
 			}
 		})
-		c := New(Options{Token: testToken, Account: "test-account", Client: client, HTTP: okHTTP})
+		c := New(Options{Token: testToken, Account: "test-account", Client: client, URLChecker: okHTTP})
 		status, reason := verify.StatusContradicted, verify.ReasonVersionSHAMismatch
 		if active {
 			status, reason = verify.StatusVerified, ""
@@ -301,7 +428,7 @@ func TestDeploymentActiveVersionsAndPrecedence(t *testing.T) {
 	c := versionChecker(t, fixture(t, "version-without-sha.json"))
 	claim := deployment()
 	claim.Marker = "live"
-	c.http = checkFunc(func(context.Context, verify.Claim) verify.Outcome {
+	c.urlChecker = checkFunc(func(context.Context, verify.Claim) verify.Outcome {
 		return verify.Outcome{Status: verify.StatusContradicted, Reason: verify.ReasonMarkerMissing}
 	})
 	wantOutcome(t, c.Check(context.Background(), claim), verify.StatusContradicted, verify.ReasonMarkerMissing)
@@ -355,7 +482,7 @@ func TestDeploymentAccountAndTokenResolution(t *testing.T) {
 					fmt.Fprint(w, matching)
 				}
 			})
-			opts := Options{Token: testToken, Client: client, HTTP: okHTTP}
+			opts := Options{Token: testToken, Client: client, URLChecker: okHTTP}
 			claim := deployment()
 			switch source {
 			case "claim":
@@ -379,6 +506,10 @@ func TestDeploymentAccountAndTokenResolution(t *testing.T) {
 
 func TestFallbackHTTPCheckerHonorsOptions(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			fmt.Fprintf(w, `{"commit_sha":"%s"}`, fixtureSHA)
+			return
+		}
 		if r.URL.RawQuery != "keep=1" || r.Header.Get("User-Agent") != "readback/9.9" {
 			w.WriteHeader(http.StatusBadRequest)
 			return
@@ -387,6 +518,33 @@ func TestFallbackHTTPCheckerHonorsOptions(t *testing.T) {
 	}))
 	defer server.Close()
 	c := New(Options{Token: testToken, DisableCacheBust: true, UserAgent: "readback/9.9", Client: server.Client()})
-	claim := verify.Claim{Type: "deployment_serving", URL: server.URL + "/?keep=1", Marker: "live"}
+	claim := verify.Claim{Type: "deployment_serving", SHA: fixtureSHA, URL: server.URL + "/?keep=1", Marker: "live", Health: server.URL + "/health"}
 	wantOutcome(t, c.Check(context.Background(), claim), verify.StatusVerified, "")
+}
+
+func TestDeploymentHealthOnlyNeedsNoAPIToken(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLOUDFLARE_API_TOKEN", "")
+	t.Setenv("CLOUDFLARE_ACCOUNT_ID", "")
+	calls := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Header.Get("Authorization") != "" {
+			t.Error("health request carries credentials")
+		}
+		fmt.Fprintf(w, `{"commit_sha":%q}`, fixtureSHA)
+	}))
+	defer server.Close()
+	checker := New(Options{Client: server.Client(), DisableCacheBust: true})
+	claim := verify.Claim{Type: "deployment_serving", Provider: "cloudflare-workers", SHA: fixtureSHA, URL: server.URL, Health: server.URL}
+	outcome := checker.Check(context.Background(), claim)
+	wantOutcome(t, outcome, verify.StatusVerified, "")
+	if calls != 1 || outcome.Evidence[0].Observed["commit_sha"] != fixtureSHA {
+		t.Fatalf("health evidence was not preserved: calls=%d evidence=%+v", calls, outcome.Evidence)
+	}
+	claim.Worker = "api-worker"
+	wantOutcome(t, checker.Check(context.Background(), claim), verify.StatusIndeterminate, verify.ReasonAuthMissing)
+	if calls != 1 {
+		t.Fatal("API claim without credentials made a request")
+	}
 }

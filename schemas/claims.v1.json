@@ -62,7 +62,8 @@
         "url": {
           "type": "string",
           "format": "uri",
-          "pattern": "^https://[^/?#]+"
+          "pattern": "^https://[^/?#]+",
+          "description": "Absolute HTTPS URL without userinfo or credential query parameters"
         },
         "marker": {
           "type": "string"
@@ -79,7 +80,8 @@
         "health": {
           "type": "string",
           "format": "uri",
-          "pattern": "^https://[^/?#]+"
+          "pattern": "^https://[^/?#]+",
+          "description": "Absolute HTTPS URL without userinfo or credential query parameters"
         },
         "pr": {
           "type": "integer",

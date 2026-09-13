@@ -129,8 +129,14 @@ func TestChecksPassedVerified(t *testing.T) {
 	}
 }
 func TestChecksPendingIsIndeterminate(t *testing.T) {
-	for _, names := range [][]string{{"checks-pending", "status-success"}, {"checks-success", "status-pending"}, {"checks-success", "status-empty"}} {
+	for _, names := range [][]string{{"checks-pending", "status-success"}, {"checks-success", "status-pending"}} {
 		assertOutcome(t, recorded(t, checksClaim(), names...), verify.StatusIndeterminate, verify.ReasonChecksPending)
+	}
+}
+
+func TestSuccessfulCheckRunsIgnoreEmptyLegacyStatuses(t *testing.T) {
+	for _, name := range []string{"status-empty", "status-empty-failure"} {
+		assertOutcome(t, recorded(t, checksClaim(), "checks-success", name), verify.StatusVerified, "")
 	}
 }
 func TestChecksFailingIsContradicted(t *testing.T) {

@@ -29,9 +29,11 @@ and full 40-hex commit IDs before running it:
 ```
 
 Optional `id` labels a claim. PR claims may also specify the merge `sha`.
-Deployment claims may specify `account`; they need at least `marker` or `health`.
-URLs must be HTTPS; paths cannot contain a `..` segment. Commands, credentials,
-and token fields cannot grant authority through a claims document.
+Deployment claims may specify `account`. They need commit identity from an active
+Worker version or a matching `health` response. A Worker version also needs a
+`health`, `marker`, or smoke observation at the edge. URLs must be HTTPS and cannot contain
+userinfo or credential query parameters. Paths cannot contain a `..` segment.
+Commands, credentials, and token fields cannot grant authority through a claims document.
 
 `readback verify-deploy <40-hex-sha> --url https://example.com/ --worker app --marker release-marker --json`
 constructs one deployment claim. Add `--health https://example.com/api/health` and
@@ -40,7 +42,8 @@ response, with the same statuses and exits as `verify`.
 
 `readback doctor --json` checks local tools, provider access, assertions, and hook
 references without writing. Doctor exits 0 when GitHub auth works, otherwise 1.
-GitHub uses `gh` authentication; Cloudflare uses the operator's configured token.
+GitHub uses `gh` authentication. Worker version checks use the operator's Cloudflare
+token; health-only deployment checks need no Cloudflare API token.
 Never put credentials in claims or reports.
 
 The operator owns `readback.assertions.yaml` in the working directory, or a file
@@ -60,7 +63,7 @@ allow_hosts:
 
 Every required entry must match a verified claim on all listed fields. Omitting
 a required claim fails verification. `allow_hosts` is optional and restricts
-claimed hosts. `--cwd <dir>` sets local path resolution and assertion discovery;
+claimed hosts plus every HTTP redirect destination. `--cwd <dir>` sets local path resolution and assertion discovery;
 `--timeout 120s` sets the overall deadline.
 
 Verification exits:
@@ -75,4 +78,5 @@ masks another claim's indeterminate status. No model calls, telemetry, or prose 
 Install this skill with `readback install-skills --agent all`; use `--agent claude`,
 `codex`, or `cursor` to select one. `--dir <path>` writes SKILL.md directly there.
 Foreign first lines require `--force`. Discovery: `readback capabilities --json`,
-`readback schema verify`, and `readback search deploy`.
+`readback schema verify` returns named `input` and `result` schemas, and
+`readback search deploy` returns concise module summaries.
