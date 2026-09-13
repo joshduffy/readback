@@ -119,6 +119,42 @@ func TestDoctorNeverPrintsToken(t *testing.T) {
 	}
 }
 
+func TestDoctorCloudflareProbeNeverFollowsRedirect(t *testing.T) {
+	const token = "dummy-cloudflare-redirect-token"
+	destinationCalls := 0
+	probes := baseProbes(t)
+	probes.Env = func(key string) string {
+		if key == "CLOUDFLARE_API_TOKEN" {
+			return token
+		}
+		return ""
+	}
+	probes.CFClient = func() *http.Client {
+		return &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			if request.URL.Host != "api.cloudflare.com" {
+				destinationCalls++
+				if request.Header.Get("Authorization") != "" {
+					t.Fatal("authorization reached redirect destination")
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}")), Header: make(http.Header)}, nil
+			}
+			return &http.Response{
+				StatusCode: http.StatusFound,
+				Body:       io.NopCloser(strings.NewReader("")),
+				Header:     http.Header{"Location": []string{"https://foreign.test/accounts"}},
+				Request:    request,
+			}, nil
+		})}
+	}
+	env, raw, _ := runDoctor(t, probes)
+	if destinationCalls != 0 || env.Data.Cloudflare.AccountReachable {
+		t.Fatalf("destination calls = %d, cloudflare = %+v", destinationCalls, env.Data.Cloudflare)
+	}
+	if strings.Contains(raw, token) {
+		t.Fatal("token leaked")
+	}
+}
+
 func TestDoctorAuthOkExit0(t *testing.T) {
 	env, _, code := runDoctor(t, baseProbes(t))
 	if code != output.ExitVerified {

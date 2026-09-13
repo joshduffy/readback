@@ -4,10 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/joshduffy/readback/internal/providers/cloudflare"
-	httpprovider "github.com/joshduffy/readback/internal/providers/http"
-	"github.com/joshduffy/readback/internal/providers/local"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,7 +14,10 @@ import (
 	"testing"
 
 	"github.com/joshduffy/readback/internal/output"
+	"github.com/joshduffy/readback/internal/providers/cloudflare"
 	"github.com/joshduffy/readback/internal/providers/github"
+	httpprovider "github.com/joshduffy/readback/internal/providers/http"
+	"github.com/joshduffy/readback/internal/providers/local"
 	"github.com/joshduffy/readback/internal/verify"
 )
 
@@ -54,17 +56,69 @@ func TestStubExitsCouldNotCheck(t *testing.T) {
 	}
 }
 
-func TestSchemaVerifyPrintsClaimsSchema(t *testing.T) {
+func TestSchemaVerifyNamesInputAndResultSchemas(t *testing.T) {
 	code, out, errb := run(t, "schema", "verify")
 	if code != 0 || !strings.Contains(out, `"readback-claims"`) && !strings.Contains(out, `"claims"`) || !strings.Contains(out, "pr_merged") {
 		t.Fatalf("exit %d stdout %s stderr %s", code, out, errb)
 	}
 	var printed struct {
-		Data map[string]any `json:"data"`
+		Data map[string]map[string]any `json:"data"`
 	}
-	var embedded map[string]any
-	if json.Unmarshal([]byte(out), &printed) != nil || json.Unmarshal(verify.ClaimsSchemaJSON(), &embedded) != nil || !reflect.DeepEqual(printed.Data, embedded) {
-		t.Fatalf("schema verify must print the embedded claims schema exactly")
+	var input, result map[string]any
+	if json.Unmarshal([]byte(out), &printed) != nil ||
+		json.Unmarshal(verify.ClaimsSchemaJSON(), &input) != nil ||
+		json.Unmarshal(verify.ResultSchemaJSON(), &result) != nil ||
+		!reflect.DeepEqual(printed.Data["input"], input) ||
+		!reflect.DeepEqual(printed.Data["result"], result) {
+		t.Fatalf("schema verify must name the embedded input and result schemas")
+	}
+}
+
+func TestSearchReturnsSlimArray(t *testing.T) {
+	code, out, _ := run(t, "search", "deploy", "--json")
+	if code != 0 || strings.Contains(out, "\"schemas\"") || strings.Contains(out, "\"keywords\"") {
+		t.Fatalf("search output is not slim: exit=%d %s", code, out)
+	}
+	code, out, _ = run(t, "search", "no-such-module", "--json")
+	if code != 0 || !strings.Contains(out, "\"data\": []") {
+		t.Fatalf("empty search is not an array: exit=%d %s", code, out)
+	}
+}
+
+func TestCapabilitiesLabelsImplementedAndPlannedCommands(t *testing.T) {
+	code, out, _ := run(t, "capabilities", "--json")
+	if code != 0 {
+		t.Fatal(code)
+	}
+	if strings.Contains(out, `"schemas":`) {
+		t.Fatal("capabilities includes full schema bodies")
+	}
+
+	for _, want := range []string{`"name": "verify"`, `"status": "beta"`, `"name": "policy"`, `"status": "planned"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %s in %s", want, out)
+		}
+	}
+	_, help, _ := run(t, "--help")
+	if !strings.Contains(help, "Planned: Compile one readback.policy.yaml") {
+		t.Fatalf("planned command is not labeled in help: %s", help)
+	}
+}
+
+type failWriter struct{}
+
+func (failWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
+
+func TestDiscoveryWriteFailureIsExit2(t *testing.T) {
+	if code := Main([]string{"capabilities", "--json"}, strings.NewReader(""), failWriter{}, io.Discard); code != output.ExitCouldNotCheck {
+		t.Fatalf("exit = %d", code)
+	}
+}
+
+func TestInstallSkillsWriteFailureIsExit2(t *testing.T) {
+	args := []string{"install-skills", "--dir", t.TempDir(), "--json"}
+	if code := Main(args, strings.NewReader(""), failWriter{}, io.Discard); code != output.ExitCouldNotCheck {
+		t.Fatalf("exit = %d", code)
 	}
 }
 

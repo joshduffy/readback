@@ -150,7 +150,10 @@ runs the explicit `gh auth status` preflight.
 
 ### cloudflare-workers (`internal/providers/cloudflare`)
 
-Auth: `CLOUDFLARE_API_TOKEN` env, else `~/.cloudflare/api-token`, else `auth_missing`.
+Auth for a requested Worker version check: `CLOUDFLARE_API_TOKEN` env, else
+`~/.cloudflare/api-token`, else `auth_missing`. Health-only deployment checks do not
+use or require a Cloudflare API token. See the 2026-09-13 decision record for the
+current evidence and truncation rules.
 Account: claim `account`, else `CLOUDFLARE_ACCOUNT_ID`, else the first account the token
 lists. `deployment_serving` is verified only when ALL of the following hold, and the
 evidence lists each as its own entry so a reader can see which rung was reached:

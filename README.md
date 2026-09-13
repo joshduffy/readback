@@ -12,9 +12,9 @@ then reports what it found. Each result comes with the evidence behind it.
 It is written in Go and ships as one binary. It makes no calls to language models
 and sends no telemetry.
 
-**Current status:** early software. Version 0.1.4 has known bugs in deployment
-verification, host restrictions, and GitHub check reporting. Review the evidence
-yourself before using a result to approve a release. See the limitations below.
+**Current status:** early software. Review the evidence before using a result to
+approve a release. Readback checks the claims you submit; you still need to decide
+whether those claims cover the task.
 
 ## Install
 
@@ -40,7 +40,7 @@ This downloads the script before running it. If the download fails, the command
 fails too. The installer checks the release checksum and puts the binary in
 `~/.local/bin`. Add that directory to your `PATH` if it is not already there.
 It supports Intel/AMD and ARM64 machines. Set `READBACK_INSTALL_DIR` to choose a
-different directory, or `READBACK_VERSION=v0.1.4` to install a specific release.
+different directory, or `READBACK_VERSION=v0.1.5` to install a specific release.
 
 Windows binaries are on the [releases page](https://github.com/joshduffy/readback/releases).
 If you already have Go 1.25 or newer, you can build and install from source:
@@ -58,7 +58,8 @@ Start with something small. This example needs no GitHub account or network
 connection. Run it in a new directory:
 
 ```sh
-mkdir readback-demo && cd readback-demo
+(
+mkdir readback-demo && cd readback-demo || exit 1
 printf 'release-ready\n' > proof.txt
 
 cat > claims.json <<'JSON'
@@ -81,8 +82,9 @@ cat > claims.json <<'JSON'
 }
 JSON
 
-readback verify claims.json --json
+readback verify claims.json --cwd . --json
 echo "$?"
+)
 ```
 
 The first claim is `verified`. The second is `contradicted`, because the file
@@ -90,6 +92,36 @@ does not contain `never-written`. The command exits with code `1`.
 
 The file has passed one test and failed another. Readback does not average them
 into a success.
+
+Here are the checked condition and evidence from the first result. This is an
+excerpt of `data.claims[0]`; the full record also includes its ID and check time.
+`--cwd .` keeps the paths in this example relative.
+
+```json
+{
+  "claim": {
+    "type": "file_exists",
+    "path": "proof.txt",
+    "contains": "release-ready"
+  },
+  "status": "verified",
+  "reason": null,
+  "evidence": [
+    {
+      "source": "local",
+      "call": "stat proof.txt",
+      "observed": {
+        "contains_found": true,
+        "mode": "-rw-r--r--",
+        "size": 14
+      }
+    }
+  ]
+}
+```
+
+`claim` records the question. `observed` records what Readback found. A verified
+claim has no failure reason, so `reason` is `null`.
 
 ## Give your agent something to fill in
 
@@ -167,9 +199,9 @@ Leaving it out fails the run. Readback looks for the assertions file in the
 directory chosen by `--cwd`, or your shell's current directory if you omit that
 flag. `--assertions path/to/file.yaml` selects a different file.
 
-Assertions can also list `allow_hosts` to restrict requested URLs. In 0.1.4 that
-restriction does not cover redirect destinations, so it is not a reliable
-network boundary yet.
+Assertions can also list `allow_hosts` to restrict requested URLs. Readback checks
+the initial host and every redirect destination before making the request. HTTPS
+requests cannot redirect to HTTP.
 
 ## Checks and results
 
@@ -183,10 +215,11 @@ The current claim types are:
 - `url_serving`: request an HTTPS URL and check its status, text, or response
   headers. A marker is simply text you expect to find in the response.
 - `deployment_serving`: check a Cloudflare Workers deployment. This is
-  experimental and has the verification gaps described below.
+  experimental. It needs both commit identity and an observation from the live
+  site.
 
 `verify-deploy` is a shortcut for submitting a single deployment claim. Run
-`readback verify-deploy --help` for its options. The same deployment limitations
+`readback verify-deploy --help` for its options. The same evidence requirements
 apply.
 
 Every claim gets one of three results: `verified`, `contradicted`, or
@@ -207,27 +240,33 @@ Use `--cwd path/to/repo` to choose the directory for file checks and assertions,
 and `--timeout 120s` to set the verification time limit. See the
 [claims schema](schemas/claims.v1.json) for fields and the
 [result schema](schemas/result.v1.json) for output structure. The Go validator
-is authoritative.
+is authoritative. `readback schema verify` prints both schemas under the names
+`input` and `result`. `readback capabilities` lists working commands as `beta`
+and placeholders as `planned`; `readback search <term>` finds their summaries.
 
 ## Limits worth knowing about
 
-Version 0.1.4 can incorrectly verify a deployment without checking the claimed
-commit. Its GitHub checks can also report pending when GitHub Actions has
-finished successfully. These need fixing before Readback can be used as the
-sole release approval check.
+Deployment verification needs evidence that names the claimed commit: either an
+active Cloudflare version annotation or a matching health response. It also needs
+a health, marker, or smoke check from the live site. A generic page containing the
+right word cannot establish which commit produced it. Missing evidence leaves the
+claim `indeterminate`. Worker version checks need a Cloudflare API token; a
+health-only deployment check does not.
 
-Keep passwords, tokens, and signed URLs out of claims. The current release can
-echo credential-bearing URLs into its output. Cloudflare credentials belong in
-your local provider configuration, such as `CLOUDFLARE_API_TOKEN`.
+Keep passwords, tokens, and signed URLs out of claims. Readback rejects URL
+userinfo and known credential query parameters. It masks recognized credentials
+in evidence, but arbitrary text can still contain sensitive information. Cloudflare
+credentials belong in your local provider configuration, such as
+`CLOUDFLARE_API_TOKEN`.
 
 A successful request describes one response at one time. It says nothing about
-what the website will serve tomorrow. Large response bodies are capped, and a
-marker beyond that cap can currently be reported missing.
+what the website will serve tomorrow. HTTP response bodies are capped. If the
+unread part could contain a required marker, the result is `indeterminate` with
+reason `response_truncated`. Local file content checks have a 2 MiB read cap and
+use the same rule: unread content cannot establish that a match is missing.
 
-`policy`, `hook`, `fleet`, and `memory` are placeholders that exit `2`. They do
-not yet perform the work their names suggest. Discovery also has rough edges:
-`capabilities` currently labels the working verification commands as stubs, and
-`schema verify` prints the input schema despite its help text promising output.
+`policy`, `hook`, `fleet`, and `memory` are planned commands that exit `2`. They do
+not yet perform the work their names suggest.
 
 Readback does not merge pull requests, deploy code, send messages, or check
 whether an email was delivered. It does not read ordinary prose and turn it

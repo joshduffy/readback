@@ -70,6 +70,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "claim",
           "id",
           "type",
           "status",
@@ -78,6 +79,9 @@
           "reason"
         ],
         "properties": {
+          "claim": {
+            "$ref": "#/$defs/checkedCondition"
+          },
           "id": {
             "type": "string"
           },
@@ -143,10 +147,88 @@
               "deployment_not_found",
               "auth_missing",
               "provider_unreachable",
+              "response_truncated",
               "host_not_allowed",
               "no_claims_block",
               "required_assertion_unmet"
             ]
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "checkedCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "pr": {
+          "type": "integer"
+        },
+        "into": {
+          "type": "string"
+        },
+        "sha": {
+          "type": "string"
+        },
+        "require": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "branch": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "contains": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "description": "Checked URL with userinfo and credential query values HMAC-pseudonymized"
+        },
+        "expect_status": {
+          "type": "integer"
+        },
+        "marker": {
+          "type": "string"
+        },
+        "header": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Expected headers with sensitive values HMAC-pseudonymized"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "account": {
+          "type": "string"
+        },
+        "worker": {
+          "type": "string"
+        },
+        "health": {
+          "type": "string",
+          "description": "Checked health URL with userinfo and credential query values HMAC-pseudonymized"
+        },
+        "smoke": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/checkedCondition"
           }
         }
       }

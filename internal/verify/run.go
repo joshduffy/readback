@@ -89,7 +89,7 @@ func Run(ctx context.Context, input RunInput) RunResult {
 			outcome.Reason = ReasonProviderUnreachable
 		}
 		result.Claims = append(result.Claims, ClaimResult{
-			Claim: claim, ID: claim.ID, Type: claim.Type, Status: outcome.Status,
+			Claim: claim, Condition: checkedCondition(claim), ID: claim.ID, Type: claim.Type, Status: outcome.Status,
 			CheckedAt: now().UTC(), Evidence: outcome.Evidence, Reason: outcome.Reason,
 		})
 	}

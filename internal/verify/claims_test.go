@@ -195,6 +195,27 @@ func TestClaimsValidateConstructedDocument(t *testing.T) {
 	}
 }
 
+func TestClaimsRejectURLCredentials(t *testing.T) {
+	for _, address := range []string{
+		"https://user:password@example.com/status",
+		"https://example.com/status?access_token=secret",
+		"https://example.com/status?API-Key=secret",
+	} {
+		doc := Document{Version: 1, Claims: []Claim{{Type: "url_serving", URL: address}}}
+		if err := Validate(doc); err == nil || !strings.Contains(err.Error(), "must not contain credentials") {
+			t.Fatalf("Validate(%q) = %v", address, err)
+		}
+	}
+}
+
+func TestClaimsRejectMalformedURLQuery(t *testing.T) {
+	address := "https://example.com/status?token=secret;bad=value"
+	doc := Document{Version: 1, Claims: []Claim{{Type: "url_serving", URL: address}}}
+	if err := Validate(doc); err == nil || !strings.Contains(err.Error(), "must contain valid query parameters") {
+		t.Fatalf("Validate(%q) = %v", address, err)
+	}
+}
+
 func TestClaimsRejectsNestedSmoke(t *testing.T) {
 	for _, nested := range []string{`[]`, `null`, `{}`, `[{"type":"url_serving","url":"https://example.com"}]`} {
 		t.Run(nested, func(t *testing.T) {

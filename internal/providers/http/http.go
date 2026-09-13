@@ -20,6 +20,8 @@ const defaultMaxBody = 2 << 20 // 2 MiB
 var (
 	errRedirectLimit = errors.New("readback: redirect limit exceeded")
 	errDowngrade     = errors.New("readback: https to http redirect refused")
+	errURLMalformed  = errors.New("readback: redirect URL query is malformed")
+	errURLNotAllowed = errors.New("readback: redirect URL is not allowed")
 )
 
 var bustCounter atomic.Int64
@@ -30,6 +32,7 @@ type Options struct {
 	MaxRedirects     int
 	MaxBody          int64
 	Client           *nethttp.Client
+	Assertions       *verify.Assertions
 }
 
 type Checker struct {
@@ -38,6 +41,62 @@ type Checker struct {
 	maxRedirects int
 	maxBody      int64
 	client       *nethttp.Client
+	assertions   *verify.Assertions
+}
+
+type RedirectGuard struct {
+	MalformedURL     string
+	RefusedURL       string
+	DowngradeRefused bool
+	Redirects        int
+
+	assertions *verify.Assertions
+	max        int
+	caller     func(*nethttp.Request, []*nethttp.Request) error
+}
+
+func NewRedirectGuard(assertions *verify.Assertions, max int, caller func(*nethttp.Request, []*nethttp.Request) error) *RedirectGuard {
+	return &RedirectGuard{assertions: assertions, max: max, caller: caller}
+}
+
+func (g *RedirectGuard) CheckRedirect(next *nethttp.Request, via []*nethttp.Request) error {
+	g.Redirects = len(via)
+	if err := g.checkURL(next.URL.String()); err != nil {
+		return err
+	}
+	if len(via) > g.max {
+		return errRedirectLimit
+	}
+	if last := via[len(via)-1]; last.URL.Scheme == "https" && next.URL.Scheme == "http" {
+		g.DowngradeRefused = true
+		return errDowngrade
+	}
+	if g.caller != nil {
+		if err := g.caller(next, via); err != nil {
+			return err
+		}
+		if err := g.checkURL(next.URL.String()); err != nil {
+			return err
+		}
+		if last := via[len(via)-1]; last.URL.Scheme == "https" && next.URL.Scheme == "http" {
+			g.DowngradeRefused = true
+			return errDowngrade
+		}
+	}
+	return nil
+}
+
+func (g *RedirectGuard) checkURL(raw string) error {
+	allowed, err := verify.URLAllowed(g.assertions, raw)
+	if err != nil {
+		g.MalformedURL = raw
+		return errURLMalformed
+	}
+	if !allowed {
+		g.RefusedURL = raw
+		return errURLNotAllowed
+	}
+	return nil
 }
 
 func New(opts Options) *Checker {
@@ -63,11 +122,21 @@ func New(opts Options) *Checker {
 		maxRedirects: maxRedirects,
 		maxBody:      maxBody,
 		client:       base,
+		assertions:   opts.Assertions,
 	}
 }
 
 func (c *Checker) Check(ctx context.Context, claim verify.Claim) verify.Outcome {
 	target := claim.URL
+	allowed, urlErr := verify.URLAllowed(c.assertions, target)
+	if urlErr != nil {
+		return verify.Outcome{Status: verify.StatusIndeterminate, Reason: verify.ReasonProviderUnreachable,
+			Evidence: c.evidence(target, map[string]any{"url_refused": verify.SanitizeURL(target), "malformed_url": true})}
+	}
+	if !allowed {
+		return verify.Outcome{Status: verify.StatusContradicted, Reason: verify.ReasonHostNotAllowed,
+			Evidence: c.evidence(target, map[string]any{"url_refused": verify.SanitizeURL(target)})}
+	}
 	if c.cacheBust {
 		if parsed, err := neturl.Parse(target); err == nil {
 			q := parsed.Query()
@@ -81,48 +150,52 @@ func (c *Checker) Check(ctx context.Context, claim verify.Claim) verify.Outcome 
 	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodGet, target, nil)
 	if err != nil {
 		return verify.Outcome{Status: verify.StatusIndeterminate, Reason: verify.ReasonProviderUnreachable,
-			Evidence: c.evidence(target, map[string]any{"error": err.Error()})}
+			Evidence: c.evidence(target, map[string]any{"error": verify.SanitizeURLs(err.Error())})}
 	}
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Cache-Control", "no-cache")
 
-	redirects := 0
 	client := *c.client
-	callerRedirect := c.client.CheckRedirect
-	client.CheckRedirect = func(next *nethttp.Request, via []*nethttp.Request) error {
-		redirects = len(via)
-		if len(via) > c.maxRedirects {
-			return errRedirectLimit
-		}
-		if last := via[len(via)-1]; last.URL.Scheme == "https" && next.URL.Scheme == "http" {
-			return errDowngrade
-		}
-		if callerRedirect != nil {
-			return callerRedirect(next, via)
-		}
-		return nil
-	}
+	guard := NewRedirectGuard(c.assertions, c.maxRedirects, c.client.CheckRedirect)
+	client.CheckRedirect = guard.CheckRedirect
 
 	resp, err := client.Do(req)
 	if err != nil {
-		observed := map[string]any{"error": err.Error(), "redirects": redirects}
-		if errors.Is(err, errDowngrade) {
+		observed := map[string]any{"redirects": guard.Redirects}
+		if guard.MalformedURL != "" {
+			observed["url_refused"] = verify.SanitizeURL(guard.MalformedURL)
+			observed["malformed_url"] = true
+		} else if guard.RefusedURL != "" {
+			observed["url_refused"] = verify.SanitizeURL(guard.RefusedURL)
+		} else {
+			observed["error"] = verify.SanitizeURLs(err.Error())
+		}
+		if guard.DowngradeRefused {
 			observed["downgrade_refused"] = true
 		}
-		return verify.Outcome{Status: verify.StatusIndeterminate, Reason: verify.ReasonProviderUnreachable,
+		reason := verify.ReasonProviderUnreachable
+		status := verify.StatusIndeterminate
+		if guard.RefusedURL != "" {
+			status, reason = verify.StatusContradicted, verify.ReasonHostNotAllowed
+		}
+		return verify.Outcome{Status: status, Reason: reason,
 			Evidence: c.evidence(target, observed)}
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, c.maxBody))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, c.maxBody+1))
 	if err != nil {
 		return verify.Outcome{Status: verify.StatusIndeterminate, Reason: verify.ReasonProviderUnreachable,
 			Evidence: c.evidence(resp.Request.URL.String(), map[string]any{
-				"error":     err.Error(),
-				"redirects": redirects,
+				"error":     verify.SanitizeURLs(err.Error()),
+				"redirects": guard.Redirects,
 				"status":    resp.StatusCode,
-				"final_url": resp.Request.URL.String(),
+				"final_url": verify.SanitizeURL(resp.Request.URL.String()),
 			})}
+	}
+	truncated := int64(len(body)) > c.maxBody
+	if truncated {
+		body = body[:c.maxBody]
 	}
 
 	markerOffset := -1
@@ -131,10 +204,11 @@ func (c *Checker) Check(ctx context.Context, claim verify.Claim) verify.Outcome 
 	}
 	observed := map[string]any{
 		"status":        resp.StatusCode,
-		"final_url":     resp.Request.URL.String(),
+		"final_url":     verify.SanitizeURL(resp.Request.URL.String()),
 		"marker_offset": markerOffset,
-		"redirects":     redirects,
+		"redirects":     guard.Redirects,
 		"bytes_read":    len(body),
+		"truncated":     truncated,
 	}
 	evidence := c.evidence(resp.Request.URL.String(), observed)
 
@@ -148,9 +222,6 @@ func (c *Checker) Check(ctx context.Context, claim verify.Claim) verify.Outcome 
 		}
 		return verify.Outcome{Status: verify.StatusContradicted, Reason: verify.ReasonStatusMismatch, Evidence: evidence}
 	}
-	if claim.Marker != "" && markerOffset < 0 {
-		return verify.Outcome{Status: verify.StatusContradicted, Reason: verify.ReasonMarkerMissing, Evidence: evidence}
-	}
 	for name, want := range claim.Header {
 		values := resp.Header.Values(name)
 		got := ""
@@ -162,6 +233,12 @@ func (c *Checker) Check(ctx context.Context, claim verify.Claim) verify.Outcome 
 			return verify.Outcome{Status: verify.StatusContradicted, Reason: verify.ReasonHeaderMismatch, Evidence: evidence}
 		}
 	}
+	if claim.Marker != "" && markerOffset < 0 {
+		if truncated {
+			return verify.Outcome{Status: verify.StatusIndeterminate, Reason: verify.ReasonResponseTruncated, Evidence: evidence}
+		}
+		return verify.Outcome{Status: verify.StatusContradicted, Reason: verify.ReasonMarkerMissing, Evidence: evidence}
+	}
 	return verify.Outcome{Status: verify.StatusVerified, Evidence: evidence}
 }
 
@@ -169,5 +246,5 @@ func (c *Checker) evidence(call string, observed map[string]any) []verify.Eviden
 	if observed == nil {
 		observed = map[string]any{}
 	}
-	return []verify.Evidence{{Source: "http", Call: "GET " + call, Observed: observed}}
+	return []verify.Evidence{{Source: "http", Call: "GET " + verify.SanitizeURL(call), Observed: observed}}
 }

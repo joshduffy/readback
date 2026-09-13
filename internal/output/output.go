@@ -43,18 +43,50 @@ type Result struct {
 // Emit writes r as JSON or delegates to human for table output. Returns r.Exit.
 func (w *Writer) Emit(r Result, human func(io.Writer)) int {
 	if w.JSON {
-		enc := json.NewEncoder(w.out)
+		out := &checkedWriter{Writer: w.out}
+		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(r)
+		if err := enc.Encode(r); err != nil || out.err != nil {
+			return writeFailureExit(r.Exit)
+		}
 		return r.Exit
 	}
+	out := &checkedWriter{Writer: w.out}
+	errOut := &checkedWriter{Writer: w.err}
 	if human != nil {
-		human(w.out)
+		human(out)
 	}
 	if r.Error != "" {
-		fmt.Fprintln(w.err, "error:", r.Error)
+		fmt.Fprintln(errOut, "error:", r.Error)
+	}
+	if out.err != nil || errOut.err != nil {
+		return writeFailureExit(r.Exit)
 	}
 	return r.Exit
+}
+
+type checkedWriter struct {
+	io.Writer
+	err error
+}
+
+func (w *checkedWriter) Write(p []byte) (int, error) {
+	if w.err != nil {
+		return 0, w.err
+	}
+	n, err := w.Writer.Write(p)
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	w.err = err
+	return n, err
+}
+
+func writeFailureExit(current int) int {
+	if current != ExitVerified {
+		return current
+	}
+	return ExitCouldNotCheck
 }
 
 // Table is a small helper for aligned human output.

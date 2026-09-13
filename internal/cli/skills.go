@@ -64,12 +64,11 @@ func installSkillsCmd(w func() *output.Writer) *cobra.Command {
 				}
 				written = append(written, path)
 			}
-			w().Emit(output.Result{Command: "install-skills", OK: true, Data: written}, func(out io.Writer) {
+			return emitted(w().Emit(output.Result{Command: "install-skills", OK: true, Data: written}, func(out io.Writer) {
 				for _, path := range written {
 					fmt.Fprintln(out, path)
 				}
-			})
-			return nil
+			}))
 		},
 	}
 	cmd.Flags().StringVar(&agent, "agent", "all", "claude, codex, cursor, or all")

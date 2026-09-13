@@ -219,3 +219,5 @@ section[id], div[id] { scroll-margin-top: 112px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+.example-result { margin-top: 24px; }

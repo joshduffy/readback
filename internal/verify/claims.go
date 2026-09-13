@@ -281,6 +281,10 @@ func validateClaim(c Claim, index int, prefix string, problems *[]Problem) {
 			parsed, err := url.Parse(field.value)
 			if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" {
 				add(field.name, "must be an absolute https URL with a host")
+			} else if hasCredentials, queryErr := URLContainsCredentials(field.value); queryErr != nil {
+				add(field.name, "must contain valid query parameters")
+			} else if hasCredentials {
+				add(field.name, "must not contain credentials")
 			}
 		case "path":
 			if field.value == "" {

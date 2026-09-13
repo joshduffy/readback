@@ -89,8 +89,8 @@ func TestFileContainsBoundedRead(t *testing.T) {
 	outcome := c.Check(context.Background(), verify.Claim{
 		Type: "file_exists", Path: big, Contains: "needle-beyond-cap",
 	})
-	if outcome.Status != verify.StatusContradicted || outcome.Reason != verify.ReasonContentMissing {
-		t.Fatalf("want contradicted/content_missing past the cap, got %q/%q", outcome.Status, outcome.Reason)
+	if outcome.Status != verify.StatusIndeterminate || outcome.Reason != verify.ReasonResponseTruncated {
+		t.Fatalf("want indeterminate/response_truncated past the cap, got %q/%q", outcome.Status, outcome.Reason)
 	}
 	if got := outcome.Evidence[0].Observed["truncated"]; got != true {
 		t.Fatalf("want observed.truncated true, got %v", got)
@@ -122,5 +122,19 @@ func TestFileDirectoryIsMissing(t *testing.T) {
 	}
 	if got := outcome.Evidence[0].Observed["is_dir"]; got != true {
 		t.Fatalf("want observed.is_dir true, got %v", got)
+	}
+}
+
+func TestFileContainsExactCapCanContradict(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "exact.txt"), []byte(strings.Repeat("a", 2<<20)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outcome := local.New(dir).Check(context.Background(), verify.Claim{Type: "file_exists", Path: "exact.txt", Contains: "missing"})
+	if outcome.Status != verify.StatusContradicted || outcome.Reason != verify.ReasonContentMissing {
+		t.Fatalf("exact-cap file: %+v", outcome)
+	}
+	if outcome.Evidence[0].Observed["truncated"] == true {
+		t.Fatal("complete file reported as truncated")
 	}
 }

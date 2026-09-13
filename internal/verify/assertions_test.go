@@ -127,6 +127,20 @@ func TestFindAssertionsNoParentWalk(t *testing.T) {
 	}
 }
 
+func TestResolveAssertionsRejectsNonregularDefault(t *testing.T) {
+	cwd := t.TempDir()
+	path := filepath.Join(cwd, "readback.assertions.yaml")
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, gotPath, err := ResolveAssertions(cwd, ""); err == nil || gotPath != "" {
+		t.Fatalf("ResolveAssertions = %q, %v", gotPath, err)
+	}
+	if got, ok := FindAssertions(cwd); !ok || got != path {
+		t.Fatalf("FindAssertions = %q, %t", got, ok)
+	}
+}
+
 func TestParseAssertionsSubset(t *testing.T) {
 	input := "# operator-owned\nversion: 1 # schema\nrequire:\n  - type: pr_merged\n    into: 'main'\n    pr: 42\n    marker: \"ready # yes\" # comment\n    contains: 'it''s ready'\n  - type: deployment_serving\n    provider: cloudflare-workers\nallow_hosts: # optional\n  - example.com\n  - \"*.example.com\"\n"
 	want := Assertions{Version: 1, Require: []Requirement{

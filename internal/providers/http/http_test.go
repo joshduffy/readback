@@ -3,8 +3,10 @@ package http_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	nethttp "net/http"
 	"net/http/httptest"
+	neturl "net/url"
 	"strings"
 	"testing"
 	"time"
@@ -100,6 +102,21 @@ func TestUrlServingRedirectLimit(t *testing.T) {
 	}
 }
 
+func TestUrlServingHeaderMismatchWinsOverTruncatedMarker(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+		w.Header().Set("X-Version", "wrong")
+		_, _ = w.Write([]byte(strings.Repeat("a", 256)))
+	}))
+	defer srv.Close()
+	outcome := check(t, provider.New(provider.Options{MaxBody: 128}), context.Background(), verify.Claim{
+		Type: "url_serving", URL: srv.URL, Marker: "missing",
+		Header: map[string]string{"X-Version": "right"},
+	})
+	if outcome.Status != verify.StatusContradicted || outcome.Reason != verify.ReasonHeaderMismatch {
+		t.Fatalf("outcome = %+v", outcome)
+	}
+}
+
 func TestUrlServingHeaderMismatch(t *testing.T) {
 	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
 		w.Header().Set("X-Deploy-Sha", "abc123")
@@ -156,11 +173,40 @@ func TestUrlServingBodyCap(t *testing.T) {
 	outcome := check(t, c, context.Background(), verify.Claim{
 		Type: "url_serving", URL: srv.URL, ExpectStatus: 200, Marker: "tail-marker",
 	})
-	if outcome.Status != verify.StatusContradicted || outcome.Reason != verify.ReasonMarkerMissing {
-		t.Fatalf("want contradicted/marker_missing, got %q/%q", outcome.Status, outcome.Reason)
+	if outcome.Status != verify.StatusIndeterminate || outcome.Reason != verify.ReasonResponseTruncated {
+		t.Fatalf("want indeterminate/response_truncated, got %q/%q", outcome.Status, outcome.Reason)
 	}
 	if got := outcome.Evidence[0].Observed["bytes_read"]; got != 128 {
 		t.Fatalf("want bytes_read 128, got %v", got)
+	}
+	if got := outcome.Evidence[0].Observed["truncated"]; got != true {
+		t.Fatalf("want truncated true, got %v", got)
+	}
+}
+
+func TestUrlServingExactBodyCapCanContradict(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+		_, _ = w.Write([]byte(strings.Repeat("a", 128)))
+	}))
+	defer srv.Close()
+	outcome := check(t, provider.New(provider.Options{MaxBody: 128}), context.Background(), verify.Claim{
+		Type: "url_serving", URL: srv.URL, ExpectStatus: 200, Marker: "missing",
+	})
+	if outcome.Status != verify.StatusContradicted || outcome.Reason != verify.ReasonMarkerMissing || outcome.Evidence[0].Observed["truncated"] != false {
+		t.Fatalf("outcome = %+v", outcome)
+	}
+}
+
+func TestUrlServingMarkerWithinCapVerifiesTruncatedBody(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+		_, _ = w.Write([]byte("marker" + strings.Repeat("a", 256)))
+	}))
+	defer srv.Close()
+	outcome := check(t, provider.New(provider.Options{MaxBody: 128}), context.Background(), verify.Claim{
+		Type: "url_serving", URL: srv.URL, ExpectStatus: 200, Marker: "marker",
+	})
+	if outcome.Status != verify.StatusVerified || outcome.Evidence[0].Observed["truncated"] != true {
+		t.Fatalf("outcome = %+v", outcome)
 	}
 }
 
@@ -242,6 +288,31 @@ func TestUrlServingChainsCallerCheckRedirect(t *testing.T) {
 	}
 }
 
+func TestUrlServingRechecksURLAfterCallerRedirectPolicy(t *testing.T) {
+	destinationCalls := 0
+	destination := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+		destinationCalls++
+	}))
+	defer destination.Close()
+	source := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		nethttp.Redirect(w, r, "/next", nethttp.StatusFound)
+	}))
+	defer source.Close()
+	foreign, _ := neturl.Parse(strings.Replace(destination.URL, "127.0.0.1", "localhost", 1))
+	client := source.Client()
+	client.CheckRedirect = func(next *nethttp.Request, _ []*nethttp.Request) error {
+		next.URL = foreign
+		return nil
+	}
+	checker := provider.New(provider.Options{
+		Client: client, Assertions: &verify.Assertions{AllowHosts: []string{"127.0.0.1"}},
+	})
+	outcome := check(t, checker, context.Background(), verify.Claim{Type: "url_serving", URL: source.URL})
+	if outcome.Status != verify.StatusContradicted || outcome.Reason != verify.ReasonHostNotAllowed || destinationCalls != 0 {
+		t.Fatalf("outcome = %+v, destination calls = %d", outcome, destinationCalls)
+	}
+}
+
 func TestUrlServingRefusesDowngrade(t *testing.T) {
 	plain := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
 		_, _ = w.Write([]byte("ok"))
@@ -261,6 +332,144 @@ func TestUrlServingRefusesDowngrade(t *testing.T) {
 	}
 	if got := outcome.Evidence[0].Observed["downgrade_refused"]; got != true {
 		t.Fatalf("want observed.downgrade_refused true, got %v", got)
+	}
+}
+
+func TestUrlServingRechecksDowngradeAfterCallerRedirectPolicy(t *testing.T) {
+	destinationCalls := 0
+	plain := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+		destinationCalls++
+	}))
+	defer plain.Close()
+	secure := httptest.NewTLSServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		nethttp.Redirect(w, r, "/next", nethttp.StatusFound)
+	}))
+	defer secure.Close()
+	destination, err := neturl.Parse(plain.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := secure.Client()
+	client.CheckRedirect = func(next *nethttp.Request, _ []*nethttp.Request) error {
+		next.URL = destination
+		return nil
+	}
+	outcome := check(t, provider.New(provider.Options{Client: client}), context.Background(), verify.Claim{
+		Type: "url_serving", URL: secure.URL,
+	})
+	if outcome.Status != verify.StatusIndeterminate || outcome.Reason != verify.ReasonProviderUnreachable || destinationCalls != 0 {
+		t.Fatalf("outcome = %+v, destination calls = %d", outcome, destinationCalls)
+	}
+	if outcome.Evidence[0].Observed["downgrade_refused"] != true {
+		t.Fatalf("missing downgrade evidence: %+v", outcome.Evidence)
+	}
+}
+
+func TestUrlServingRefusesDisallowedRedirectBeforeRequest(t *testing.T) {
+	destinationCalls := 0
+	destination := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+		destinationCalls++
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer destination.Close()
+	foreignURL := strings.Replace(destination.URL, "127.0.0.1", "localhost", 1)
+	source := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		nethttp.Redirect(w, r, foreignURL+"/secret", nethttp.StatusFound)
+	}))
+	defer source.Close()
+
+	checker := provider.New(provider.Options{
+		Client: source.Client(), Assertions: &verify.Assertions{AllowHosts: []string{"127.0.0.1"}},
+	})
+	outcome := check(t, checker, context.Background(), verify.Claim{
+		Type: "url_serving", URL: source.URL, ExpectStatus: 200,
+	})
+	if outcome.Status != verify.StatusContradicted || outcome.Reason != verify.ReasonHostNotAllowed || destinationCalls != 0 {
+		t.Fatalf("outcome = %+v, destination calls = %d", outcome, destinationCalls)
+	}
+}
+
+func TestUrlServingInitialRefusalReportsSanitizedURL(t *testing.T) {
+	checker := provider.New(provider.Options{Assertions: &verify.Assertions{AllowHosts: []string{"allowed.test"}}})
+	outcome := check(t, checker, context.Background(), verify.Claim{Type: "url_serving", URL: "https://foreign.test/path"})
+	if outcome.Status != verify.StatusContradicted || outcome.Reason != verify.ReasonHostNotAllowed {
+		t.Fatalf("outcome = %+v", outcome)
+	}
+	if got := outcome.Evidence[0].Observed["url_refused"]; got != "https://foreign.test/path" {
+		t.Fatalf("url_refused = %#v", got)
+	}
+}
+
+func TestUrlServingMalformedRedirectIsIndeterminate(t *testing.T) {
+	destinationCalls := 0
+	source := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path == "/next" {
+			destinationCalls++
+		}
+		nethttp.Redirect(w, r, "/next?a=1;b=2", nethttp.StatusFound)
+	}))
+	defer source.Close()
+
+	checker := provider.New(provider.Options{
+		Client: source.Client(), Assertions: &verify.Assertions{AllowHosts: []string{"127.0.0.1"}},
+	})
+	outcome := check(t, checker, context.Background(), verify.Claim{Type: "url_serving", URL: source.URL})
+	if outcome.Status != verify.StatusIndeterminate || outcome.Reason != verify.ReasonProviderUnreachable || destinationCalls != 0 {
+		t.Fatalf("outcome = %+v", outcome)
+	}
+	refused, ok := outcome.Evidence[0].Observed["url_refused"].(string)
+	if !ok || !strings.Contains(refused, "malformed=rb_") || outcome.Evidence[0].Observed["malformed_url"] != true {
+		t.Fatalf("evidence = %+v", outcome.Evidence)
+	}
+}
+
+func TestUrlServingRedactsMalformedRelativeLocationError(t *testing.T) {
+	const secret = "dummy-relative-location-secret"
+	location := "/%zz?token=" + secret
+	requests := 0
+	source := httptest.NewTLSServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+		requests++
+		w.Header().Set("Location", location)
+		w.WriteHeader(nethttp.StatusFound)
+	}))
+	defer source.Close()
+
+	outcome := check(t, provider.New(provider.Options{
+		Client: source.Client(), DisableCacheBust: true,
+	}), context.Background(), verify.Claim{Type: "url_serving", URL: source.URL})
+	if outcome.Status != verify.StatusIndeterminate || outcome.Reason != verify.ReasonProviderUnreachable || requests != 1 {
+		t.Fatalf("outcome = %+v, requests = %d", outcome, requests)
+	}
+	errorText, ok := outcome.Evidence[0].Observed["error"].(string)
+	if !ok || strings.Contains(errorText, secret) || strings.Count(errorText, verify.SanitizeURL(location)) != 2 ||
+		!strings.Contains(errorText, "failed to parse Location header") {
+		t.Fatalf("unsafe or unhelpful evidence: %+v", outcome.Evidence)
+	}
+}
+
+func TestUrlServingRedactsCredentialBearingRedirect(t *testing.T) {
+	destinationCalls := 0
+	destination := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+		destinationCalls++
+	}))
+	defer destination.Close()
+	credentialURL := strings.Replace(destination.URL, "http://", "http://user:password@", 1) + "?access_token=secret"
+	source := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		nethttp.Redirect(w, r, credentialURL, nethttp.StatusFound)
+	}))
+	defer source.Close()
+
+	outcome := check(t, provider.New(provider.Options{Client: source.Client()}), context.Background(), verify.Claim{
+		Type: "url_serving", URL: source.URL, ExpectStatus: 200,
+	})
+	encoded := fmt.Sprintf("%+v", outcome)
+	if outcome.Status != verify.StatusContradicted || outcome.Reason != verify.ReasonHostNotAllowed || destinationCalls != 0 {
+		t.Fatalf("outcome = %+v, destination calls = %d", outcome, destinationCalls)
+	}
+	for _, secret := range []string{"user", "password", "secret"} {
+		if strings.Contains(encoded, secret) {
+			t.Fatalf("credential %q leaked in %s", secret, encoded)
+		}
 	}
 }
 

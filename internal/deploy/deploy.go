@@ -2,13 +2,7 @@
 package deploy
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
 	"regexp"
 	"time"
 
@@ -24,14 +18,10 @@ func init() {
 	registry.Register(registry.Module{
 		Name:      name,
 		Summary:   "Prove a commit SHA is serving: build success, deployment activation, marker observation, optional smoke check",
-		Status:    registry.StatusStub,
+		Status:    registry.StatusBeta,
 		Milestone: "v0.1",
 		Keywords:  []string{"deploy", "sha", "cloudflare", "vercel", "railway", "netlify", "fly", "github actions"},
-		Schema: map[string]interface{}{
-			"$schema": "https://json-schema.org/draft/2020-12/schema",
-			"title":   "readback verify-deploy result",
-			"type":    "object",
-		},
+		Schemas:   map[string]map[string]interface{}{"result": verify.ResultSchema()},
 	})
 }
 
@@ -58,19 +48,8 @@ func Command(w func() *output.Writer, factory verify.RegistryFactory) *cobra.Com
 			if len(args) == 0 {
 				return fail(64, fmt.Errorf("verify-deploy: a full 40-character commit sha and --url are required"))
 			}
-			if timeout <= 0 {
-				return fail(64, fmt.Errorf("timeout must be positive"))
-			}
 			if !shaPattern.MatchString(args[0]) {
 				return fail(64, fmt.Errorf("sha must be the full 40-character commit hash"))
-			}
-			workingDir := cwd
-			if workingDir == "" {
-				var err error
-				workingDir, err = os.Getwd()
-				if err != nil {
-					return fail(2, err)
-				}
 			}
 			doc := verify.Document{Version: verify.ClaimsSchemaVersion, Claims: []verify.Claim{{
 				Type:         "deployment_serving",
@@ -86,45 +65,9 @@ func Command(w func() *output.Writer, factory verify.RegistryFactory) *cobra.Com
 			if err := verify.Validate(doc); err != nil {
 				return fail(64, err)
 			}
-			path := assertionsPath
-			if path == "" {
-				path = filepath.Join(workingDir, "readback.assertions.yaml")
-				info, err := os.Stat(path)
-				switch {
-				case errors.Is(err, os.ErrNotExist):
-					path = ""
-				case err != nil:
-					return fail(2, err)
-				case !info.Mode().IsRegular():
-					path = ""
-				}
-			}
-			var assertions *verify.Assertions
-			if path != "" {
-				loaded, err := verify.LoadAssertions(path)
-				if err != nil {
-					var readError *os.PathError
-					if errors.As(err, &readError) {
-						return fail(2, err)
-					}
-					return fail(64, err)
-				}
-				assertions = &loaded
-			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
-			defer cancel()
-			result := verify.Run(ctx, verify.RunInput{Doc: doc, Assertions: assertions, Registry: factory(workingDir, verify.RegistryOptions{NoCacheBust: noCacheBust})})
-			result.Input.Assertions = path
-			code := result.ExitCode()
-			return exitError(w().Emit(output.Result{Command: name, OK: code == 0, Exit: code, Data: result}, func(o io.Writer) {
-				for _, claim := range result.Claims {
-					fmt.Fprintf(o, "%s  %s  %s  %s\n", claim.Status, claim.Type, claim.ID, claim.Reason)
-				}
-				fmt.Fprintf(o, "summary: verified=%d contradicted=%d indeterminate=%d required_unmet=%d\n", result.Summary.Verified, result.Summary.Contradicted, result.Summary.Indeterminate, len(result.Summary.RequiredUnmet))
-				for _, requirement := range result.Summary.RequiredUnmet {
-					fields, _ := json.Marshal(requirement)
-					fmt.Fprintf(o, "%s  %s\n", verify.ReasonRequiredAssertionUnmet, fields)
-				}
+			return exitError(verify.ExecuteDocument(cmd.Context(), w(), factory, verify.CommandRun{
+				Command: name, Document: doc, AssertionsPath: assertionsPath,
+				CWD: cwd, Timeout: timeout, NoCacheBust: noCacheBust,
 			}))
 		},
 	}

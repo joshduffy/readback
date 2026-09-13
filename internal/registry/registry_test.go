@@ -3,7 +3,7 @@ package registry
 import "testing"
 
 func TestRegisterAndSearch(t *testing.T) {
-	Register(Module{Name: "zz-test", Summary: "Proves a claim against GitHub", Status: StatusStub, Keywords: []string{"claim"}})
+	Register(Module{Name: "zz-test", Summary: "Proves a claim against GitHub", Status: StatusPlanned, Keywords: []string{"claim"}})
 	if _, ok := Get("zz-test"); !ok {
 		t.Fatal("registered module not found")
 	}

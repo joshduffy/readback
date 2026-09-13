@@ -37,11 +37,11 @@ func init() {
 		Status:    registry.StatusBeta,
 		Milestone: "v0.1",
 		Keywords:  []string{"doctor", "install", "auth", "gh", "wrangler", "hooks"},
-		Schema: map[string]interface{}{
+		Schemas: map[string]map[string]interface{}{"result": {
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"title":   "readback doctor result",
 			"type":    "object",
-		},
+		}},
 	})
 }
 
@@ -239,7 +239,11 @@ func probeCloudflare(p Probes) cfInfo {
 		return info
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := p.CFClient().Do(req)
+	client := *p.CFClient()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return info
 	}
