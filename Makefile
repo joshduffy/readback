@@ -4,7 +4,7 @@ LDFLAGS := -s -w -X github.com/joshduffy/readback/internal/cli.Version=$(shell g
 .PHONY: build test vet check cross attack clean
 
 build:
-	go build -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/readback
+	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/readback
 
 test:
 	go test ./...

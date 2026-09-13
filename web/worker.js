@@ -8,7 +8,7 @@ export default {
     if (url.pathname === "/install" || url.pathname === "/install.sh") {
       const upstream = await fetch(RAW_INSTALL, { cf: { cacheTtl: 300 } });
       if (!upstream.ok) {
-        return new Response("readback v0.1 is not released yet; check " + REPO + "\n", {
+        return new Response("the install script is temporarily unavailable; see " + REPO + "\n", {
           status: 503,
           headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
         });

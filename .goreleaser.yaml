@@ -6,6 +6,9 @@ builds:
     env: [CGO_ENABLED=0]
     goos: [darwin, linux, windows]
     goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w -X github.com/joshduffy/readback/internal/cli.Version={{.Version}}
 archives:
