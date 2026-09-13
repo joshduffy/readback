@@ -5,7 +5,7 @@ Verify coding agents' completion claims against GitHub and live deployments.
 Install with one of these commands (requires a published release and tap):
 
 ```sh
-brew install joshduffy/tap/readback
+brew install --cask joshduffy/tap/readback
 curl -fsSL https://readbackcli.dev/install | bash
 go install github.com/joshduffy/readback/cmd/readback@latest
 ```

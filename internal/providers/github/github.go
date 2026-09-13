@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/joshduffy/readback/internal/procbound"
 	"io"
 	"net/url"
 	"os/exec"
@@ -31,7 +32,7 @@ func New(run Runner) *Checker {
 }
 
 func runGH(ctx context.Context, args ...string) ([]byte, int, error) {
-	cmd := exec.CommandContext(ctx, "gh", args...)
+	cmd := procbound.Command(ctx, "gh", args...)
 	output, err := cmd.Output()
 	if err == nil {
 		return output, 0, nil

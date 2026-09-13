@@ -1,19 +1,19 @@
 //go:build unix
 
-package doctor
+package procbound
 
 import (
 	"os/exec"
 	"syscall"
 )
 
-// setProcAttrs puts the probe in its own process group so cancellation can
-// kill the whole group, including any children the probe spawns.
+// setProcAttrs puts the process in its own process group so cancellation can
+// kill the whole group, including any children the process spawns.
 func setProcAttrs(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-// killProc kills the probe's whole process group.
+// killProc kills the process's whole process group.
 func killProc(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
