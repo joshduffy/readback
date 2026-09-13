@@ -19,15 +19,19 @@ archives:
         formats: [zip]
 checksum:
   name_template: checksums.txt
-brews:
-  - repository:
+homebrew_casks:
+  - name: readback
+    binaries: [readback]
+    repository:
       owner: joshduffy
       name: homebrew-tap
-    directory: Formula
     homepage: https://github.com/joshduffy/readback
     description: Agent ops for your own machine. Agents claim; readback verifies.
-    license: MIT
-    test: |
-      system "#{bin}/readback", "capabilities", "--json"
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/readback"]
+          end
 release:
   draft: false

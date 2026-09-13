@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/joshduffy/readback/internal/procbound"
 	"io"
 	"net/http"
 	"os"
@@ -68,26 +69,11 @@ func (p Probes) versionTimeout() time.Duration {
 	return defaultVersionTimeout
 }
 
-// boundedCmd returns a command that is hard-bounded by ctx. On unix it runs
-// in its own process group and cancellation kills the whole group, so a
-// probe that spawns children still returns within the deadline; on Windows
-// cancellation kills only the direct process. WaitDelay caps the time spent
-// waiting on pipes inherited by grandchildren.
-func boundedCmd(ctx context.Context, name string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, name, args...)
-	setProcAttrs(cmd)
-	cmd.Cancel = func() error {
-		return killProc(cmd)
-	}
-	cmd.WaitDelay = 500 * time.Millisecond
-	return cmd
-}
-
 func defaultProbes() Probes {
 	return Probes{
 		LookPath: exec.LookPath,
 		RunVersion: func(ctx context.Context, path string) (string, error) {
-			cmd := boundedCmd(ctx, path, "--version")
+			cmd := procbound.Command(ctx, path, "--version")
 			var out bytes.Buffer
 			cmd.Stdout = &out
 			cmd.Stderr = io.Discard
@@ -95,7 +81,7 @@ func defaultProbes() Probes {
 			return firstLine(out.String()), err
 		},
 		GhAuth: func(ctx context.Context) (string, string, error) {
-			cmd := boundedCmd(ctx, "gh", "auth", "status")
+			cmd := procbound.Command(ctx, "gh", "auth", "status")
 			var stdout, stderr bytes.Buffer
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr

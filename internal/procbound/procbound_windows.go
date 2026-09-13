@@ -1,11 +1,11 @@
 //go:build windows
 
-package doctor
+package procbound
 
 import "os/exec"
 
 // Windows has no unix-style process groups; set nothing. WaitDelay in
-// boundedCmd still caps the wait on inherited pipes.
+// Command still caps the wait on inherited pipes.
 func setProcAttrs(cmd *exec.Cmd) {}
 
 // killProc kills only the direct process.

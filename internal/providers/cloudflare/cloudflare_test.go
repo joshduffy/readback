@@ -367,9 +367,11 @@ func TestDeploymentAccountAndTokenResolution(t *testing.T) {
 			case "environment":
 				t.Setenv("CLOUDFLARE_ACCOUNT_ID", source)
 			}
-			wantOutcome(t, New(opts).Check(context.Background(), claim), verify.StatusVerified, "")
+			checker := New(opts)
+			wantOutcome(t, checker.Check(context.Background(), claim), verify.StatusVerified, "")
+			wantOutcome(t, checker.Check(context.Background(), claim), verify.StatusVerified, "")
 			if (source == "discovery") != (calls == 1) {
-				t.Fatalf("account discovery calls %d", calls)
+				t.Fatalf("account discovery calls %d (want exactly one across two checks)", calls)
 			}
 		})
 	}

@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	httpprovider "github.com/joshduffy/readback/internal/providers/http"
@@ -34,6 +35,9 @@ type Checker struct {
 	http        verify.Checker
 	userAgent   string
 	noCacheBust bool
+
+	mu         sync.Mutex
+	discovered string // account id resolved from /accounts, cached for the checker's lifetime
 }
 
 func New(opts Options) *Checker {
@@ -220,17 +224,11 @@ func (c *Checker) version(ctx context.Context, claim verify.Claim) verify.Outcom
 		account = c.account
 	}
 	if account == "" {
-		var accounts []struct {
-			ID string `json:"id"`
-		}
-		status, reason := c.api(ctx, "/accounts", &accounts)
+		discovered, status, reason := c.discoverAccount(ctx)
 		if status != verify.StatusVerified {
 			return finish(status, reason)
 		}
-		if len(accounts) == 0 || accounts[0].ID == "" {
-			return finish(verify.StatusIndeterminate, verify.ReasonProviderUnreachable)
-		}
-		account = accounts[0].ID
+		account = discovered
 	}
 	base := "/accounts/" + url.PathEscape(account) + "/workers/scripts/" + url.PathEscape(claim.Worker)
 	var deployments struct {
@@ -361,4 +359,26 @@ func (c *Checker) health(ctx context.Context, claim verify.Claim) verify.Outcome
 		return finish(verify.StatusVerified, "", observed)
 	}
 	return finish(verify.StatusContradicted, verify.ReasonHealthSHAMismatch, observed)
+}
+
+// discoverAccount resolves the token's first account once per checker so a run with
+// several deployment claims makes one /accounts call, not one per claim.
+func (c *Checker) discoverAccount(ctx context.Context) (string, string, string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.discovered != "" {
+		return c.discovered, verify.StatusVerified, ""
+	}
+	var accounts []struct {
+		ID string `json:"id"`
+	}
+	status, reason := c.api(ctx, "/accounts", &accounts)
+	if status != verify.StatusVerified {
+		return "", status, reason
+	}
+	if len(accounts) == 0 || accounts[0].ID == "" {
+		return "", verify.StatusIndeterminate, verify.ReasonProviderUnreachable
+	}
+	c.discovered = accounts[0].ID
+	return c.discovered, verify.StatusVerified, ""
 }

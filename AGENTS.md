@@ -22,6 +22,7 @@ so Codex, Kimi, and Claude Code read the same instructions.
 - `internal/verify/`: claims (typed, closed set), extract (fenced blocks), assertions (operator file), result (statuses, reason codes, Checker interface), run (runner, deadlines, exit precedence), verify (command).
 - `internal/providers/<name>/`: one Checker per system of record (github via gh, http, local, cloudflare).
 - `internal/deploy/`, `internal/doctor/`: verify-deploy and doctor commands.
+- `internal/procbound/`: context-bounded exec.Cmd (own process group on unix, group kill on cancel, WaitDelay); every subprocess goes through it.
 - `schemas/`: JSON Schema for the claims document and the result payload (documentation; Go validation is authoritative).
 - `policies/`, `skills/`: shipped rule packs and the agent skill installed by `install-skills` (v0.2).
 - `testdata/`: fixtures; `testdata/verify/fabricated-handoff.md` is the 2026-08-17 incident shape.
