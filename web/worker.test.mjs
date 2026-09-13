@@ -10,12 +10,17 @@ test("the homepage uses the asset binding and keeps its security headers", async
   const response = await worker.fetch(request, {
     ASSETS: { async fetch(received) {
       assert.equal(received, request);
-      return new Response("<h1>Readback</h1>", { headers: { "content-type": "text/html", etag: '"asset"' } });
+      return new Response("<h1>Readback</h1>", { headers: {
+        "content-type": "text/html",
+        "cache-control": "public, max-age=0, must-revalidate",
+        etag: '"asset"',
+      } });
     } },
   });
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("location"), null);
   assert.equal(response.headers.get("etag"), '"asset"');
+  assert.equal(response.headers.get("cache-control"), "public, max-age=0, must-revalidate, no-transform");
   assert.match(response.headers.get("content-security-policy"), /frame-ancestors 'none'/);
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   assert.equal(await response.text(), "<h1>Readback</h1>");
