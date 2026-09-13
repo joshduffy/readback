@@ -35,6 +35,7 @@ tablist.hidden = false;
 if (navigator.clipboard?.writeText) {
   for (const button of document.querySelectorAll("[data-copy]")) {
     button.hidden = false;
+    const label = button.getAttribute("aria-label");
     let reset;
     button.addEventListener("click", async () => {
       const status = document.getElementById("copy-status");
@@ -44,12 +45,17 @@ if (navigator.clipboard?.writeText) {
       try {
         await navigator.clipboard.writeText(code.textContent);
         button.textContent = "Copied";
-        status.textContent = button.getAttribute("aria-label").replace(/^Copy /, "Copied ") + ".";
+        button.setAttribute("aria-label", label.replace(/^Copy /, "Copied "));
+        status.textContent = button.getAttribute("aria-label") + ".";
       } catch {
-        button.textContent = "Select text";
+        button.textContent = "Copy failed";
+        button.setAttribute("aria-label", label.replace(/^Copy /, "Copy failed: "));
         status.textContent = "Clipboard access is unavailable. Select and copy the command directly.";
       }
-      reset = setTimeout(() => { button.textContent = "Copy"; }, 2500);
+      reset = setTimeout(() => {
+        button.textContent = "Copy";
+        button.setAttribute("aria-label", label);
+      }, 2500);
     });
   }
 }
