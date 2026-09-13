@@ -7,3 +7,4 @@ coverage.out
 .env.*
 .claude/settings.local.json
 .claude/worktrees/
+web/.wrangler/

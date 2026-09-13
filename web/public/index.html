@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Readback: check what your coding agent says happened</title>
+  <meta name="description" content="A small command-line tool that checks coding agents' claims against files, GitHub, and web responses. One Go binary. JSON results. No model calls.">
+  <meta name="theme-color" content="#f6f7f3">
+  <link rel="canonical" href="https://readbackcli.dev/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Readback: your agent says it's done. Check.">
+  <meta property="og:description" content="Check coding agents' claims against files, GitHub, and web responses. Get results with evidence you can inspect.">
+  <meta property="og:url" content="https://readbackcli.dev/">
+  <meta name="twitter:card" content="summary">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/site.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <nav class="nav wrap" aria-label="Main navigation">
+      <a class="wordmark" href="/" aria-label="Readback home">
+        <svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" focusable="false"><path d="M10 5H5v22h5M22 5h5v22h-5M10 16l4 4 8-9"/></svg>
+        readback
+      </a>
+      <div class="nav-sections">
+        <a href="#install">Install</a>
+        <a href="#how-it-works">How it works</a>
+        <a href="#agents">For agents</a>
+      </div>
+      <a class="nav-github" href="https://github.com/joshduffy/readback">GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <a class="release" href="https://github.com/joshduffy/readback/releases/tag/v0.1.4"><span class="release-dot" aria-hidden="true"></span> v0.1.4 <span class="release-note">Early release</span><span aria-hidden="true">↗</span></a>
+        <h1 id="hero-title">Your agent says<br>it's done.<br><span>Check.</span></h1>
+        <p class="hero-description">Readback is a command-line tool that checks coding agents' claims against files, GitHub, and web responses. It returns what it found, with evidence you can inspect.</p>
+        <div class="actions">
+          <a class="button primary" href="#install">Get readback <span aria-hidden="true">↓</span></a>
+          <a class="text-link" href="#example">See a real example <span aria-hidden="true">↗</span></a>
+        </div>
+        <p class="hero-note">Early software, with <a href="#limits">known verification limits</a>.</p>
+      </div>
+      <figure class="terminal hero-terminal">
+        <div class="terminal-bar"><span class="terminal-symbol" aria-hidden="true">&gt;_</span><span>A file check</span><span class="terminal-format">JSON output</span></div>
+        <div class="terminal-body">
+          <p class="terminal-command"><span aria-hidden="true">$ </span>readback verify claims.json --json</p>
+          <p class="terminal-label">Two claims about proof.txt</p>
+          <div class="claim-row">
+            <span class="claim-icon" aria-hidden="true">✓</span>
+            <div><p>Contains <code>release-ready</code></p><span class="status verified">verified</span></div>
+          </div>
+          <div class="claim-row">
+            <span class="claim-icon failed-icon" aria-hidden="true">×</span>
+            <div><p>Contains <code>never-written</code></p><span class="status contradicted">contradicted</span></div>
+          </div>
+          <div class="terminal-summary">
+            <p class="terminal-label">data.summary, excerpt</p>
+            <pre><code>{
+  "verified": <span class="code-value">1</span>,
+  "contradicted": <span class="code-value">1</span>,
+  "indeterminate": <span class="code-value">0</span>
+}</code></pre>
+          </div>
+          <div class="exit-line"><code>exit 1</code><span>One failed check is enough.</span></div>
+        </div>
+        <figcaption>Example results, condensed. <a href="#example">Run it yourself below.</a></figcaption>
+      </figure>
+    </section>
+
+    <div class="facts wrap" aria-label="About the tool">
+      <p><strong>One Go binary</strong><span>Runs in your terminal</span></p>
+      <p><strong>JSON results</strong><span>Evidence with each check</span></p>
+      <p><strong>No model calls</strong><span>No telemetry from the CLI</span></p>
+      <p><strong>Open source</strong><span>Released under MIT</span></p>
+    </div>
+
+    <section class="section wrap install-section" id="install" aria-labelledby="install-title">
+      <div class="section-intro">
+        <p class="eyebrow">01 / Get started</p>
+        <h2 id="install-title">A small tool.<br>A short install.</h2>
+        <p>Pick the route that suits your machine. Then try the file example below. It needs no account or credentials.</p>
+        <a class="text-link" href="https://github.com/joshduffy/readback/releases">All releases, including Windows <span aria-hidden="true">↗</span></a>
+      </div>
+      <div class="install-box">
+        <div class="install-tabs" role="tablist" aria-label="Install method" hidden>
+          <button id="tab-homebrew" role="tab" aria-controls="panel-homebrew" aria-selected="true" tabindex="0">Homebrew</button>
+          <button id="tab-shell" role="tab" aria-controls="panel-shell" aria-selected="false" tabindex="-1">macOS / Linux</button>
+          <button id="tab-go" role="tab" aria-controls="panel-go" aria-selected="false" tabindex="-1">Go</button>
+        </div>
+        <div class="install-panel" id="panel-homebrew">
+          <h3>On macOS</h3>
+          <div class="code-box">
+            <div class="code-bar"><span>Terminal</span><button class="copy-button" data-copy="install-brew" aria-label="Copy Homebrew command" hidden>Copy</button></div>
+            <pre tabindex="0" aria-label="Homebrew install command"><code id="install-brew">brew install --cask joshduffy/tap/readback</code></pre>
+          </div>
+          <p>Already use Homebrew? That's the whole command.</p>
+        </div>
+        <div class="install-panel" id="panel-shell">
+          <h3>On macOS or Linux</h3>
+          <div class="code-box">
+            <div class="code-bar"><span>Shell</span><button class="copy-button" data-copy="install-shell" aria-label="Copy shell install command" hidden>Copy</button></div>
+            <pre tabindex="0" aria-label="Shell install command"><code id="install-shell">(
+  installer=$(mktemp) || exit 1
+  trap 'rm -f "$installer"' 0
+  curl -fsSL --proto '=https' --proto-redir '=https' \
+    https://readbackcli.dev/install -o "$installer" &amp;&amp;
+    sh "$installer"
+)</code></pre>
+          </div>
+          <p>Downloads the script, checks the release checksum, and installs to <code>~/.local/bin</code>. Add that directory to your <code>PATH</code>. Supports Intel/AMD and ARM64.</p>
+          <a href="/install">Read the install script</a>
+        </div>
+        <div class="install-panel" id="panel-go">
+          <h3>With Go 1.25 or newer</h3>
+          <div class="code-box">
+            <div class="code-bar"><span>Terminal</span><button class="copy-button" data-copy="install-go" aria-label="Copy Go install command" hidden>Copy</button></div>
+            <pre tabindex="0" aria-label="Go install command"><code id="install-go">go install github.com/joshduffy/readback/cmd/readback@latest</code></pre>
+          </div>
+          <p>This builds from source. The version currently displays as <code>dev</code>, even when you install a tagged release.</p>
+        </div>
+        <p class="install-footnote">GitHub checks also need <a href="https://cli.github.com/">gh</a> and an existing login. Start with <code>gh auth login</code>.</p>
+      </div>
+    </section>
+
+    <section class="workflow-section" id="how-it-works" aria-labelledby="workflow-title">
+      <div class="section wrap">
+        <div class="section-heading">
+          <p class="eyebrow">02 / How it works</p>
+          <h2 id="workflow-title">A claim goes in.<br>Evidence comes back.</h2>
+          <p>The agent writes down what it says happened. Readback checks those specific claims. You decide what the results mean for your task.</p>
+        </div>
+        <ol class="steps">
+          <li><span class="step-number" aria-hidden="true">01</span><h3>Write down the claim</h3><p>A small JSON object says what to check: a file, a pull request, a commit, or a web response.</p></li>
+          <li><span class="step-number" aria-hidden="true">02</span><h3>Ask the source</h3><p>Readback checks the local file or calls the relevant service. The surrounding prose is ignored.</p></li>
+          <li><span class="step-number" aria-hidden="true">03</span><h3>Read the evidence</h3><p>Each claim is <code>verified</code>, <code>contradicted</code>, or <code>indeterminate</code>. An unanswered check stays unanswered.</p></li>
+        </ol>
+        <div class="example" id="example">
+          <div class="example-copy">
+            <span class="small-label">Try it yourself</span>
+            <h3>One file.<br> Two claims.<br> One useful failure.</h3>
+            <p>Create a file containing <code>release-ready</code>. Then claim that it contains both that text and <code>never-written</code>.</p>
+            <p>The first claim passes. The second fails. The command exits <code>1</code>. Readback does not average them into a success.</p>
+            <p class="muted">Run this in your shell after installing. Everything in this example stays on your machine.</p>
+          </div>
+          <div class="code-box demo-code">
+            <div class="code-bar"><span>A complete example</span><button class="copy-button" data-copy="file-example" aria-label="Copy complete file example" hidden>Copy</button></div>
+            <pre tabindex="0" aria-label="Runnable file verification example"><code id="file-example">(
+mkdir readback-demo &amp;&amp; cd readback-demo || exit 1
+printf 'release-ready\n' &gt; proof.txt
+
+cat &gt; claims.json &lt;&lt;'JSON'
+{
+  "version": 1,
+  "claims": [
+    {
+      "type": "file_exists",
+      "path": "proof.txt",
+      "contains": "release-ready"
+    },
+    {
+      "type": "file_exists",
+      "path": "proof.txt",
+      "contains": "never-written"
+    }
+  ]
+}
+JSON
+
+readback verify claims.json --json
+echo "$?"
+)</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section wrap checks-section" aria-labelledby="checks-title">
+      <div class="section-intro">
+        <p class="eyebrow">03 / What you can check</p>
+        <h2 id="checks-title">Specific questions.<br>Inspectable answers.</h2>
+        <p>Readback has six claim types. Each asks a defined question and records the answer it gets.</p>
+        <a class="text-link" href="https://github.com/joshduffy/readback/blob/main/schemas/claims.v1.json">Read the claims schema <span aria-hidden="true">↗</span></a>
+      </div>
+      <dl class="checks-list">
+        <div><dt><code>file_exists</code></dt><dd>Does this file exist? Does it contain the expected text?</dd></div>
+        <div><dt><code>pr_merged</code></dt><dd>Was this pull request merged into the intended branch?</dd></div>
+        <div><dt><code>commit_on_branch</code></dt><dd>Does this GitHub branch contain the commit?</dd></div>
+        <div><dt><code>checks_passed</code></dt><dd>What do GitHub's checks and commit statuses report? <a href="#limits">Known reporting issue.</a></dd></div>
+        <div><dt><code>url_serving</code></dt><dd>Does this HTTPS response have the expected status, text, or headers?</dd></div>
+        <div><dt><code>deployment_serving</code><span class="experimental">Experimental</span></dt><dd>Inspect a Cloudflare Workers deployment. <a href="#limits">Commit verification has known gaps.</a></dd></div>
+      </dl>
+    </section>
+
+    <section class="agents-section" id="agents" aria-labelledby="agents-title">
+      <div class="section wrap agents-layout">
+        <div>
+          <p class="eyebrow">04 / Fit it into your workflow</p>
+          <h2 id="agents-title">Give your agent<br>something to fill in.</h2>
+          <p>Install a skill for Codex, Claude Code, or Cursor. It teaches the agent to include a JSON block labelled <code>readback-claims</code> in its report.</p>
+          <div class="code-box agent-code">
+            <div class="code-bar"><span>For Codex</span><button class="copy-button" data-copy="skill-command" aria-label="Copy Codex skill command" hidden>Copy</button></div>
+            <pre tabindex="0" aria-label="Install the Readback skill for Codex"><code id="skill-command">readback install-skills --agent codex</code></pre>
+          </div>
+          <p class="agent-alternatives">Also: <code>--agent claude</code>, <code>--agent cursor</code>, or <code>--agent all</code>.</p>
+          <p>Then check the report: <code>readback verify handoff.md --json</code>.</p>
+        </div>
+        <aside class="assertions-note">
+          <span class="note-mark" aria-hidden="true">[ ! ]</span>
+          <h3>A true claim can still miss the point.</h3>
+          <p>An agent could prove that a file exists and forget the deployment you asked for. You need to choose which checks are compulsory.</p>
+          <p>Keep those requirements in your own <code>readback.assertions.yaml</code>. Leaving out a required check fails the run.</p>
+          <a class="text-link" href="https://github.com/joshduffy/readback#decide-what-must-be-checked">Set required checks <span aria-hidden="true">↗</span></a>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section wrap faq-section" id="limits" aria-labelledby="faq-title">
+      <div class="section-intro">
+        <p class="eyebrow">05 / Before you rely on it</p>
+        <h2 id="faq-title">Useful details.<br>Actual limitations.</h2>
+        <p>Readback is early software. The current version is 0.1.4. Inspect the evidence before using a result to approve a release.</p>
+        <a class="text-link" href="https://github.com/joshduffy/readback#limits-worth-knowing-about">Full limitations in the README <span aria-hidden="true">↗</span></a>
+      </div>
+      <div class="faq-list">
+        <details open>
+          <summary>Can I use it as my only release check?</summary>
+          <div class="faq-answer"><p>Not yet. Version 0.1.4 can incorrectly verify a deployment without checking the claimed commit. GitHub checks can also appear pending after Actions has succeeded.</p><p>Host restrictions do not cover redirect destinations. Keep passwords, tokens, and signed URLs out of claims: credential-bearing URLs can appear in the output.</p></div>
+        </details>
+        <details>
+          <summary>Does it send my data to a model?</summary>
+          <div class="faq-answer"><p>No. The CLI makes no language-model calls and sends no telemetry. File checks run locally. GitHub and web checks contact the services involved in the claim, using your existing access.</p></div>
+        </details>
+        <details>
+          <summary>What do the exit codes mean?</summary>
+          <div class="faq-answer"><ul><li><code>0</code>: every claim verified and every required check met.</li><li><code>1</code>: a claim contradicted or a required check unmet.</li><li><code>2</code>: an unanswered check or no usable claims.</li><li><code>64</code>: invalid command or claims document.</li></ul><p>If a run has both a contradiction and an unanswered check, it exits <code>1</code>. The JSON still includes both results.</p></div>
+        </details>
+        <details>
+          <summary>Will it understand a normal written report?</summary>
+          <div class="faq-answer"><p>It reads JSON documents and Markdown blocks labelled <code>readback-claims</code>. It does not turn prose into checks. A report without a claims block exits <code>2</code>, however confidently it was written.</p></div>
+        </details>
+        <details>
+          <summary>Does it merge or deploy anything?</summary>
+          <div class="faq-answer"><p>No. Verification checks what happened. It does not merge pull requests, deploy code, or send messages. The <code>policy</code>, <code>hook</code>, <code>fleet</code>, and <code>memory</code> commands are currently placeholders.</p></div>
+        </details>
+      </div>
+    </section>
+
+    <section class="closing wrap" aria-labelledby="closing-title">
+      <div><p class="eyebrow">Start with one claim</p><h2 id="closing-title">Find out what happened.</h2><p>Install Readback. Try the file check. Read the evidence.</p></div>
+      <a class="button primary" href="#install">Get readback <span aria-hidden="true">↑</span></a>
+    </section>
+  </main>
+
+  <footer class="footer wrap">
+    <div><a class="footer-wordmark" href="/">readback</a><p>An open-source project by <a href="https://github.com/joshduffy">Josh Duffy</a>.</p></div>
+    <nav aria-label="Project links"><a href="https://github.com/joshduffy/readback#readme">Documentation</a><a href="https://github.com/joshduffy/readback/releases">Releases</a><a href="https://github.com/joshduffy/readback/issues">Issues</a><a href="https://github.com/joshduffy/readback/blob/main/LICENSE">MIT license</a></nav>
+  </footer>
+  <p class="sr-only" id="copy-status" role="status" aria-live="polite"></p>
+</body>
+</html>
