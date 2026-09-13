@@ -1,9 +1,8 @@
-# CI is dispatch-only until a runner route is armed for this repo (see AGENTS.md).
-# Local gate is `make check` via pre-commit. To arm: replace `workflow_dispatch: {}`
-# with `push: {branches: [main]}` and `pull_request: {}`.
 name: ci
 on:
-  workflow_dispatch: {}
+  push:
+    branches: [main]
+  pull_request: {}
 permissions:
   contents: read
 jobs:
@@ -15,3 +14,4 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make check
+      - run: make attack
