@@ -1,7 +1,7 @@
 BIN := readback
 LDFLAGS := -s -w -X github.com/joshduffy/readback/internal/cli.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build test vet check cross attack clean
+.PHONY: build test vet check cross attack web-check clean
 
 build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/readback
@@ -20,6 +20,9 @@ cross:
 	GOOS=darwin GOARCH=amd64 go build -o /dev/null ./...
 
 check: vet test build cross
+
+web-check:
+	node --test web/worker.test.mjs
 
 # Adversarial fixtures. Every module adds its incident-derived inputs here; the
 # target fails if any fixture that must be rejected is accepted.

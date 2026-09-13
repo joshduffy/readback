@@ -1,5 +1,7 @@
 # readback
 
+[Website](https://readbackcli.dev/) · [Releases](https://github.com/joshduffy/readback/releases)
+
 Your coding agent says the pull request is merged and the new version is live.
 You open GitHub. The pull request is still open.
 
@@ -257,5 +259,13 @@ fail; it needs `gh` authentication, `jq`, and network access.
 The [implementation notes](docs/verify-implementation.md) describe the providers
 and contracts. The [plan](docs/plan.md) describes possible future work. Code in
 the plan is not necessarily code in the binary.
+
+The website lives in `web/public`. To work on it, use Node.js 22 or newer and
+Wrangler 4, then run:
+
+```sh
+make web-check
+wrangler dev --config web/wrangler.jsonc
+```
 
 Readback is released under the [MIT license](LICENSE).
