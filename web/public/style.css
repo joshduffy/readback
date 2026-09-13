@@ -97,7 +97,7 @@ section[id], div[id] { scroll-margin-top: 112px; }
 .install-tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--line); padding: 8px; }
 .install-tabs button { flex: 1; padding: 8px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 14px; min-height: 44px; }
 .install-tabs button[aria-selected="true"] { background: var(--accent-soft); color: #18181b; font-weight: 600; }
-.install-tabs button:hover { background: var(--paper); }
+.install-tabs button:hover { background: #fafafa; }
 .install-tabs button[aria-selected="true"]:hover { background: var(--accent-soft); }
 .install-panel { padding: 24px; }
 .install-panel h3 { font-size: 16px; letter-spacing: 0; margin-bottom: 16px; }
