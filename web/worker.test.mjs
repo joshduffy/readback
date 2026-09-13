@@ -43,11 +43,12 @@ test("write methods never reach the installer or asset binding", async (t) => {
   }
 });
 
-test("health reports only a full Git SHA from version metadata and is not cached", async () => {
+test("health reports only a full Git SHA as commit_sha from version metadata and is not cached", async () => {
   for (const tag of [sha, undefined, "local-preview"]) {
     const response = await worker.fetch(new Request(siteURL + "/healthz"), { VERSION: { tag } });
     assert.equal(response.headers.get("cache-control"), "no-store");
-    assert.deepEqual(await response.json(), { status: "ok", sha: tag === sha ? sha : null });
+    // commit_sha is the field readback's health rung verifies; any other name reads as a mismatch.
+    assert.deepEqual(await response.json(), { status: "ok", commit_sha: tag === sha ? sha : null });
   }
 });
 

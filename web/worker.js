@@ -21,10 +21,13 @@ export default {
     } else if (url.pathname === "/install" || url.pathname === "/install.sh") {
       response = await installScript(request.method);
     } else if (url.pathname === "/healthz") {
+      // readback's deployment_serving health rung reads commit_sha (docs/verify-implementation.md,
+      // section 4); a null value keeps the endpoint honest when the deploy carried no tag.
       const tag = env.VERSION?.tag;
+      const commitSHA = /^[a-f0-9]{40}$/.test(tag ?? "") ? tag : null;
       response = Response.json({
         status: "ok",
-        sha: /^[a-f0-9]{40}$/.test(tag ?? "") ? tag : null,
+        commit_sha: commitSHA,
       }, { headers: { "cache-control": "no-store" } });
     } else {
       response = await env.ASSETS.fetch(request);
