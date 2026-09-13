@@ -212,5 +212,38 @@
     "reason": "version_sha_unavailable",
     "health": "",
     "deployment_status": 200
+  },
+  {
+    "name": "match-wins-over-auth-missing",
+    "versions": [
+      {"id": "denied", "sha": "", "status": 401, "percentage": 50},
+      {"id": "observed", "sha": "match", "status": 200, "percentage": 50}
+    ],
+    "status": "verified",
+    "reason": "",
+    "health": "",
+    "deployment_status": 200
+  },
+  {
+    "name": "health-does-not-waive-auth-401",
+    "versions": [
+      {"id": "denied", "sha": "", "status": 401, "percentage": 50},
+      {"id": "observed", "sha": "wrong", "status": 200, "percentage": 50}
+    ],
+    "status": "indeterminate",
+    "reason": "auth_missing",
+    "health": "match",
+    "deployment_status": 200
+  },
+  {
+    "name": "health-does-not-waive-auth-403",
+    "versions": [
+      {"id": "denied", "sha": "", "status": 403, "percentage": 50},
+      {"id": "observed", "sha": "wrong", "status": 200, "percentage": 50}
+    ],
+    "status": "indeterminate",
+    "reason": "auth_missing",
+    "health": "match",
+    "deployment_status": 200
   }
 ]

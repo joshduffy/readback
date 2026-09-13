@@ -184,7 +184,8 @@ evidence lists each as its own entry so a reader can see which rung was reached:
    with usable annotations and none matches is the claim `contradicted
    version_sha_mismatch`. No-match uncertainty resolves by stable priority, independent
    of version order: `auth_missing`, then `provider_unreachable`, then
-   `version_sha_unavailable`. See docs/decisions/2026-09-13-cloudflare-version-uncertainty.md. Auth: `CLOUDFLARE_API_TOKEN` (account-scoped `cfat_` works; the Workers
+   `version_sha_unavailable`. See docs/decisions/2026-09-13-cloudflare-version-uncertainty.md.
+   Auth: `CLOUDFLARE_API_TOKEN` (account-scoped `cfat_` works; the Workers
    Builds `builds` API needs a user `cfut_` token and returned no rows, so it is not used).
    Recorded fixtures: `testdata/providers/cloudflare/`.
 2. `health_sha` (when `health` given): GET the health URL, parse JSON, verified when
