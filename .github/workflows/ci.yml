@@ -15,3 +15,5 @@ jobs:
           go-version-file: go.mod
       - run: make check
       - run: make attack
+        env:
+          GH_TOKEN: ${{ github.token }}
