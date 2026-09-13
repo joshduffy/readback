@@ -234,10 +234,12 @@ func (c *Checker) api(ctx context.Context, path string, target any) (string, str
 	return verify.StatusVerified, ""
 }
 
-// Annotations are free text (a commit message can contain any hex run), so only a full
-// 40-hex commit id delimited by non-hex characters counts. The 12-char prefix rule applies
-// to the structured health commit_sha field only.
-var hexToken = regexp.MustCompile(`(?:^|[^0-9a-fA-F])([0-9a-fA-F]{40})(?:[^0-9a-fA-F]|$)`)
+// Annotations are free text (a commit message can contain any hex run), so only a maximal
+// hex run of exactly 40 characters counts as a commit id. Matching maximal runs rather
+// than delimited tokens keeps every adjacent token visible: a delimiter-consuming pattern
+// would skip a token that shares its delimiter with the previous match. The 12-char
+// prefix rule applies to the structured health commit_sha field only.
+var hexRun = regexp.MustCompile(`[0-9a-fA-F]+`)
 
 func matchesSHA(value, sha string) bool {
 	return len(value) >= 12 && len(value) <= 40 && strings.HasPrefix(strings.ToLower(sha), strings.ToLower(value))
@@ -276,15 +278,15 @@ func (c *Checker) version(ctx context.Context, claim verify.Claim) verify.Outcom
 		observed["deployments"] = 0
 		return finish(verify.StatusIndeterminate, verify.ReasonVersionSHAUnavailable)
 	}
-	matched, mismatch := false, false
+	matched, mismatch, unannotated := false, false, false
+	authFailed, unreachable := false, false
 	var shas []string
-	var failureStatus, failureReason string
 	for _, version := range deployments.Deployments[0].Versions {
 		if version.Percentage <= 0 {
 			continue
 		}
 		if version.ID == "" {
-			failureStatus, failureReason = verify.StatusIndeterminate, verify.ReasonProviderUnreachable
+			unreachable = true
 			continue
 		}
 		var detail struct {
@@ -292,16 +294,26 @@ func (c *Checker) version(ctx context.Context, claim verify.Claim) verify.Outcom
 		}
 		status, reason := c.api(ctx, base+"/versions/"+url.PathEscape(version.ID), &detail)
 		if status != verify.StatusVerified {
-			if failureStatus == "" || status == verify.StatusContradicted {
-				failureStatus, failureReason = status, reason
+			// A referenced version that 404s or returns API10007 is inconsistent version
+			// evidence, not proof the deployment is absent; only the deployments-list
+			// call may contradict with deployment_not_found, so any non-auth failure
+			// here only makes the version unreachable.
+			if reason == verify.ReasonAuthMissing {
+				authFailed = true
+			} else {
+				unreachable = true
 			}
 			continue
 		}
+		usable := false
 		for _, key := range []string{"workers/message", "workers/git-commit"} {
 			text, _ := detail.Annotations[key].(string)
-			for _, m := range hexToken.FindAllStringSubmatch(text, -1) {
-				sha := m[1]
+			for _, sha := range hexRun.FindAllString(text, -1) {
+				if len(sha) != 40 {
+					continue
+				}
 				shas = append(shas, sha)
+				usable = true
 				if strings.EqualFold(sha, claim.SHA) {
 					matched = true
 				} else {
@@ -309,19 +321,25 @@ func (c *Checker) version(ctx context.Context, claim verify.Claim) verify.Outcom
 				}
 			}
 		}
+		if !usable {
+			unannotated = true
+		}
 	}
 	observed["annotation_shas"] = shas
 	if matched {
 		return finish(verify.StatusVerified, "")
 	}
-	if failureStatus == verify.StatusContradicted {
-		return finish(failureStatus, failureReason)
-	}
-	if mismatch {
+	// Without a match, uncertainty blocks contradiction with a stable priority that does
+	// not depend on version order; only a completely observed active set contradicts.
+	switch {
+	case authFailed:
+		return finish(verify.StatusIndeterminate, verify.ReasonAuthMissing)
+	case unreachable:
+		return finish(verify.StatusIndeterminate, verify.ReasonProviderUnreachable)
+	case unannotated:
+		return finish(verify.StatusIndeterminate, verify.ReasonVersionSHAUnavailable)
+	case mismatch:
 		return finish(verify.StatusContradicted, verify.ReasonVersionSHAMismatch)
-	}
-	if failureStatus != "" {
-		return finish(failureStatus, failureReason)
 	}
 	return finish(verify.StatusIndeterminate, verify.ReasonVersionSHAUnavailable)
 }

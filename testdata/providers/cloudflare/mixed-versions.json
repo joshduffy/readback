@@ -1,0 +1,216 @@
+[
+  {
+    "name": "matching-plus-wrong",
+    "versions": [
+      { "id": "match", "sha": "match", "status": 200, "percentage": 50 },
+      { "id": "wrong", "sha": "wrong", "status": 200, "percentage": 50 }
+    ],
+    "status": "verified",
+    "reason": "",
+    "health": "",
+    "deployment_status": 200
+  },
+  {
+    "name": "wrong-plus-matching",
+    "versions": [
+      { "id": "wrong", "sha": "wrong", "status": 200, "percentage": 50 },
+      { "id": "match", "sha": "match", "status": 200, "percentage": 50 }
+    ],
+    "status": "verified",
+    "reason": "",
+    "health": "",
+    "deployment_status": 200
+  },
+  {
+    "name": "unknown-plus-wrong",
+    "versions": [
+      { "id": "unknown", "sha": "", "status": 503, "percentage": 50 },
+      { "id": "wrong", "sha": "wrong", "status": 200, "percentage": 50 }
+    ],
+    "status": "indeterminate",
+    "reason": "provider_unreachable",
+    "health": "",
+    "deployment_status": 200
+  },
+  {
+    "name": "wrong-plus-unknown",
+    "versions": [
+      { "id": "wrong", "sha": "wrong", "status": 200, "percentage": 50 },
+      { "id": "unknown", "sha": "", "status": 503, "percentage": 50 }
+    ],
+    "status": "indeterminate",
+    "reason": "provider_unreachable",
+    "health": "",
+    "deployment_status": 200
+  },
+  {
+    "name": "missing-annotation-plus-wrong",
+    "versions": [
+      { "id": "no-sha", "sha": "", "status": 200, "percentage": 50 },
+      { "id": "wrong", "sha": "wrong", "status": 200, "percentage": 50 }
+    ],
+    "status": "indeterminate",
+    "reason": "version_sha_unavailable",
+    "health": "",
+    "deployment_status": 200
+  },
+  {
+    "name": "missing-id-plus-wrong",
+    "versions": [
+      { "id": "", "sha": "", "status": 200, "percentage": 50 },
+      { "id": "wrong", "sha": "wrong", "status": 200, "percentage": 50 }
+    ],
+    "status": "indeterminate",
+    "reason": "provider_unreachable",
+    "health": "",
+    "deployment_status": 200
+  },
+  {
+    "name": "missing-version-plus-wrong",
+    "versions": [
+      { "id": "missing", "sha": "", "status": 404, "percentage": 50 },
+      { "id": "wrong", "sha": "wrong", "status": 200, "percentage": 50 }
+    ],
+    "status": "indeterminate",
+    "reason": "provider_unreachable",
+    "health": "",
+    "deployment_status": 200
+  },
+  {
+    "name": "version-api10007-plus-wrong",
+    "versions": [
+      { "id": "gone", "sha": "", "status": 200, "api_error": 10007, "percentage": 50 },
+      { "id": "wrong", "sha": "wrong", "status": 200, "percentage": 50 }
+    ],
+    "status": "indeterminate",
+    "reason": "provider_unreachable",
+    "health": "",
+    "deployment_status": 200
+  },
+  {
+    "name": "auth-missing-plus-unreachable",
+    "versions": [
+      { "id": "authed", "sha": "", "status": 401, "percentage": 50 },
+      { "id": "unknown", "sha": "", "status": 503, "percentage": 50 }
+    ],
+    "status": "indeterminate",
+    "reason": "auth_missing",
+    "health": "",
+    "deployment_status": 200
+  },
+  {
+    "name": "unreachable-plus-auth-missing",
+    "versions": [
+      { "id": "unknown", "sha": "", "status": 503, "percentage": 50 },
+      { "id": "authed", "sha": "", "status": 401, "percentage": 50 }
+    ],
+    "status": "indeterminate",
+    "reason": "auth_missing",
+    "health": "",
+    "deployment_status": 200
+  },
+  {
+    "name": "all-known-wrong",
+    "versions": [
+      { "id": "wrong", "sha": "wrong", "status": 200, "percentage": 50 },
+      { "id": "wrong-two", "sha": "wrong", "status": 200, "percentage": 50 }
+    ],
+    "status": "contradicted",
+    "reason": "version_sha_mismatch",
+    "health": "",
+    "deployment_status": 200
+  },
+  {
+    "name": "all-unreachable",
+    "versions": [
+      { "id": "unknown", "sha": "", "status": 503, "percentage": 50 },
+      { "id": "unknown-two", "sha": "", "status": 503, "percentage": 50 }
+    ],
+    "status": "indeterminate",
+    "reason": "provider_unreachable",
+    "health": "",
+    "deployment_status": 200
+  },
+  {
+    "name": "all-unannotated",
+    "versions": [
+      { "id": "no-sha", "sha": "", "status": 200, "percentage": 50 },
+      { "id": "no-sha-two", "sha": "", "status": 200, "percentage": 50 }
+    ],
+    "status": "indeterminate",
+    "reason": "version_sha_unavailable",
+    "health": "",
+    "deployment_status": 200
+  },
+  {
+    "name": "health-supplies-unavailable-annotation",
+    "versions": [
+      { "id": "no-sha", "sha": "", "status": 200, "percentage": 50 },
+      { "id": "wrong", "sha": "wrong", "status": 200, "percentage": 50 }
+    ],
+    "status": "verified",
+    "reason": "",
+    "health": "match",
+    "deployment_status": 200
+  },
+  {
+    "name": "health-does-not-hide-api-failure",
+    "versions": [
+      { "id": "unknown", "sha": "", "status": 503, "percentage": 50 },
+      { "id": "wrong", "sha": "wrong", "status": 200, "percentage": 50 }
+    ],
+    "status": "indeterminate",
+    "reason": "provider_unreachable",
+    "health": "match",
+    "deployment_status": 200
+  },
+  {
+    "name": "health-mismatch-still-contradicts",
+    "versions": [
+      { "id": "match", "sha": "match", "status": 200, "percentage": 50 },
+      { "id": "wrong", "sha": "wrong", "status": 200, "percentage": 50 }
+    ],
+    "status": "contradicted",
+    "reason": "health_sha_mismatch",
+    "health": "wrong",
+    "deployment_status": 200
+  },
+  {
+    "name": "match-wins-over-unreachable",
+    "versions": [
+      { "id": "match", "sha": "match", "status": 200, "percentage": 50 },
+      { "id": "unknown", "sha": "", "status": 503, "percentage": 50 }
+    ],
+    "status": "verified",
+    "reason": "",
+    "health": "",
+    "deployment_status": 200
+  },
+  {
+    "name": "inactive-unknown-ignored",
+    "versions": [
+      { "id": "wrong", "sha": "wrong", "status": 200, "percentage": 50 },
+      { "id": "inactive", "sha": "", "status": 503, "percentage": 0 }
+    ],
+    "status": "contradicted",
+    "reason": "version_sha_mismatch",
+    "health": "",
+    "deployment_status": 200
+  },
+  {
+    "name": "missing-deployment-is-contradicted",
+    "versions": [],
+    "status": "contradicted",
+    "reason": "deployment_not_found",
+    "health": "",
+    "deployment_status": 404
+  },
+  {
+    "name": "empty-active-set",
+    "versions": [],
+    "status": "indeterminate",
+    "reason": "version_sha_unavailable",
+    "health": "",
+    "deployment_status": 200
+  }
+]

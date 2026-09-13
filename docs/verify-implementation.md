@@ -99,8 +99,9 @@ Schema: `schemas/result.v1.json`. Shape of `data` inside the standard envelope:
 `unsupported_claim_type`, `not_merged`, `merged_into_other_branch`, `checks_failing`,
 `checks_pending`, `check_missing`, `sha_not_on_branch`, `file_missing`, `content_missing`,
 `status_mismatch`, `marker_missing`, `header_mismatch`, `version_sha_mismatch`,
-`health_sha_mismatch`, `deployment_not_found`, `auth_missing`, `provider_unreachable`,
-`host_not_allowed`, `no_claims_block`, `required_assertion_unmet`.
+`version_sha_unavailable`, `health_sha_mismatch`, `deployment_not_found`, `auth_missing`,
+`provider_unreachable`, `response_truncated`, `host_not_allowed`, `no_claims_block`,
+`required_assertion_unmet`.
 
 `evidence[].observed` is the raw fields used for the decision, never the whole response.
 
@@ -166,18 +167,32 @@ evidence lists each as its own entry so a reader can see which rung was reached:
    (the deploy workflow passes the commit as the message) and `"workers/triggered_by":
    "version_upload"`; wrangler-only workers carry no sha at all. Rule:
    verified when any active version's `workers/message` or `workers/git-commit` contains the
-   claim `sha` as a delimited full 40-hex id (annotations are free text, so a shorter hex run
-   never counts; the 12-char prefix rule applies only to the structured health `commit_sha`);
-   a match on any active version wins over a fetch failure on another; an empty deployments
-   list is `indeterminate version_sha_unavailable`;
-   `indeterminate version_sha_unavailable` when no active version carries a sha-shaped
-   annotation; `contradicted version_sha_mismatch` when an annotation carries a different
-   40-hex sha. Auth: `CLOUDFLARE_API_TOKEN` (account-scoped `cfat_` works; the Workers
+   claim `sha` as a delimited full 40-hex id (annotations are free text, so every maximal
+   hex run of exactly 40 characters is inspected and a shorter run, or a 40-hex prefix of a
+   longer run, never counts; the 12-char prefix rule applies only to the structured
+   health `commit_sha`);
+   a match on any active version wins over a wrong version or a failed observation on
+   another; an empty deployments list is `indeterminate version_sha_unavailable`.
+   Without a match, uncertainty blocks contradiction: an active version with a missing
+   version id or a failed detail fetch is `indeterminate provider_unreachable` (401/403
+   stays `auth_missing`); a version-detail 404 or API10007 is inconsistent version
+   evidence, not proof the deployment is absent, and is translated to
+   `indeterminate provider_unreachable` at the detail-call boundary, while a
+   deployments-list 404 or API10007 stays `contradicted deployment_not_found`; an active
+   version whose annotations carry no usable full-SHA id prevents contradiction with
+   `indeterminate version_sha_unavailable`. Only when every active version was observed
+   with usable annotations and none matches is the claim `contradicted
+   version_sha_mismatch`. No-match uncertainty resolves by stable priority, independent
+   of version order: `auth_missing`, then `provider_unreachable`, then
+   `version_sha_unavailable`. See docs/decisions/2026-09-13-cloudflare-version-uncertainty.md. Auth: `CLOUDFLARE_API_TOKEN` (account-scoped `cfat_` works; the Workers
    Builds `builds` API needs a user `cfut_` token and returned no rows, so it is not used).
    Recorded fixtures: `testdata/providers/cloudflare/`.
 2. `health_sha` (when `health` given): GET the health URL, parse JSON, verified when
    `commit_sha` equals the claim `sha` or is a prefix of it with at least 12 chars. This is
-   the proven pattern from the existing per-repo verify-deploy scripts.
+   the proven pattern from the existing per-repo verify-deploy scripts. A matching health
+   response supplies commit identity when the version rung is `version_sha_unavailable`;
+   it does not waive an API or auth failure on the version rung, and a mismatched health
+   response still contradicts.
 3. `marker` (when given): the `url_serving` check against `url` with the marker.
 4. `smoke` (when given): every listed `url_serving` claim verified.
 
