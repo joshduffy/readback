@@ -31,6 +31,10 @@ export default {
     }
 
     const headers = new Headers(response.headers);
+    if (headers.get("content-type")?.startsWith("text/html")) {
+      // Cloudflare's automatic analytics injection conflicts with the site's self-only scripts.
+      headers.append("cache-control", "no-transform");
+    }
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
       headers.set(name, value);
     }
